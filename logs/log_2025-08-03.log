@@ -1,0 +1,85 @@
+2025-08-03 08:58:05,077 - INFO - Succesfully read the YAML file
+2025-08-03 08:58:05,077 - INFO - Data Ingestion Started....
+2025-08-03 08:58:05,078 - INFO - Starting Data Ingestion Process....
+2025-08-03 08:58:06,007 - ERROR - File anime.csv not found in bucket kubenetes-project-111
+2025-08-03 08:58:06,007 - ERROR - Error while downloading data from S3 anime.csv not found in S3 bucket.
+2025-08-03 08:58:06,007 - ERROR - CustomException: Error in C:\Users\lkbansal111\Downloads\Code\testing.py , line 42 : Failed to download data
+2025-08-03 08:58:06,007 - INFO - Data Ingestion DONE...
+2025-08-03 08:59:33,498 - INFO - Succesfully read the YAML file
+2025-08-03 08:59:33,498 - INFO - Data Ingestion Started....
+2025-08-03 08:59:33,498 - INFO - Starting Data Ingestion Process....
+2025-08-03 08:59:35,378 - INFO - Downloading smaller file: anime.csv
+2025-08-03 08:59:35,750 - INFO - Downloading smaller file: anime_with_synopsis.csv
+2025-08-03 09:00:04,561 - INFO - Large file detected. Only downloading 5M rows.
+2025-08-03 09:00:04,592 - INFO - Data Ingestion Completed...
+2025-08-03 09:00:04,592 - INFO - Data Ingestion DONE...
+2025-08-03 11:16:00,385 - INFO - DataProcessing Intialized
+2025-08-03 11:16:01,671 - INFO - Data loaded sucesfully for Data Processing
+2025-08-03 11:16:01,906 - INFO - Filtered users sucesfully...
+2025-08-03 11:16:03,199 - INFO - Scalind done for Processing 
+2025-08-03 11:16:03,405 - INFO - Encoding done for Users and Anime
+2025-08-03 11:16:04,068 - INFO - Data splitted sucesfullyy
+2025-08-03 11:16:04,077 - INFO - user2user_encoded saved sucesfully in processed directory
+2025-08-03 11:16:04,089 - INFO - user2user_decoded saved sucesfully in processed directory
+2025-08-03 11:16:04,121 - INFO - anim2anime_encoded saved sucesfully in processed directory
+2025-08-03 11:16:04,168 - INFO - anim2anime_decoded saved sucesfully in processed directory
+2025-08-03 11:16:10,317 - INFO - ALl the training testing data as well as rating_df is saved now..
+2025-08-03 11:16:18,596 - INFO - DF AND SYNOPSIS_Df saved sucesfullyy...
+2025-08-03 11:16:18,601 - INFO - Data Processing Pipeline Run sucesfully .... Congrats
+2025-08-03 11:23:01,600 - INFO - Model Training & COMET ML initialized..
+2025-08-03 11:23:01,743 - INFO - Data loaded sucesfully for Model Trainig
+2025-08-03 11:23:01,801 - INFO - Succesfully read the YAML file
+2025-08-03 11:23:01,801 - INFO - Loaded configuration from config.yaml
+2025-08-03 11:23:07,930 - INFO - Model created sucesfully....
+2025-08-03 11:23:35,508 - INFO - Model training Completedd.....
+2025-08-03 11:23:35,509 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
+2025-08-03 11:23:35,572 - INFO - Model saved to artifacts/model\model.h5
+2025-08-03 11:23:35,577 - INFO - Extracting weights for user_embedding
+2025-08-03 11:23:35,591 - INFO - Extracting weights for anime_embedding
+2025-08-03 11:23:35,684 - INFO - User and Anime weights saved sucesfully....
+2025-08-03 11:38:02,898 - INFO - Model Training & COMET ML initialized..
+2025-08-03 11:38:03,070 - INFO - Data loaded sucesfully for Model Trainig
+2025-08-03 11:38:03,125 - INFO - Succesfully read the YAML file
+2025-08-03 11:38:03,125 - INFO - Loaded configuration from config.yaml
+2025-08-03 11:38:03,930 - INFO - Model created sucesfully....
+2025-08-03 11:38:32,733 - INFO - Model training Completedd.....
+2025-08-03 11:38:32,733 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
+2025-08-03 11:38:32,835 - INFO - Model saved to artifacts/model\model.h5
+2025-08-03 11:38:32,843 - INFO - Extracting weights for user_embedding
+2025-08-03 11:38:32,855 - INFO - Extracting weights for anime_embedding
+2025-08-03 11:38:32,940 - INFO - User and Anime weights saved sucesfully....
+2025-08-03 11:47:28,140 - INFO - Model Training & COMET ML initialized..
+2025-08-03 11:47:28,260 - INFO - Data loaded sucesfully for Model Trainig
+2025-08-03 11:47:28,293 - INFO - Succesfully read the YAML file
+2025-08-03 11:47:28,293 - INFO - Loaded configuration from config.yaml
+2025-08-03 11:47:28,395 - INFO - Model created sucesfully....
+2025-08-03 11:47:57,973 - INFO - Model training Completedd.....
+2025-08-03 11:47:57,979 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
+2025-08-03 11:47:58,084 - INFO - Model saved to artifacts/model\model.h5
+2025-08-03 11:47:58,090 - INFO - Extracting weights for user_embedding
+2025-08-03 11:47:58,107 - INFO - Extracting weights for anime_embedding
+2025-08-03 11:47:58,209 - INFO - User and Anime weights saved sucesfully....
+2025-08-03 11:57:30,129 - INFO - DataProcessing Intialized
+2025-08-03 11:57:31,340 - INFO - Data loaded sucesfully for Data Processing
+2025-08-03 11:57:31,554 - INFO - Filtered users sucesfully...
+2025-08-03 11:57:32,840 - INFO - Scalind done for Processing 
+2025-08-03 11:57:33,028 - INFO - Encoding done for Users and Anime
+2025-08-03 11:57:33,804 - INFO - Data splitted sucesfullyy
+2025-08-03 11:57:33,817 - INFO - user2user_encoded saved sucesfully in processed directory
+2025-08-03 11:57:33,832 - INFO - user2user_decoded saved sucesfully in processed directory
+2025-08-03 11:57:33,879 - INFO - anim2anime_encoded saved sucesfully in processed directory
+2025-08-03 11:57:33,925 - INFO - anim2anime_decoded saved sucesfully in processed directory
+2025-08-03 11:57:40,254 - INFO - ALl the training testing data as well as rating_df is saved now..
+2025-08-03 11:57:48,568 - INFO - DF AND SYNOPSIS_Df saved sucesfullyy...
+2025-08-03 11:57:48,568 - INFO - Data Processing Pipeline Run sucesfully .... Congrats
+2025-08-03 11:57:49,973 - INFO - Model Training & COMET ML initialized..
+2025-08-03 11:57:50,510 - INFO - Data loaded sucesfully for Model Trainig
+2025-08-03 11:57:50,557 - INFO - Succesfully read the YAML file
+2025-08-03 11:57:50,557 - INFO - Loaded configuration from config.yaml
+2025-08-03 11:57:50,666 - INFO - Model created sucesfully....
+2025-08-03 11:58:19,555 - INFO - Model training Completedd.....
+2025-08-03 11:58:19,556 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
+2025-08-03 11:58:19,625 - INFO - Model saved to artifacts/model\model.h5
+2025-08-03 11:58:19,628 - INFO - Extracting weights for user_embedding
+2025-08-03 11:58:19,642 - INFO - Extracting weights for anime_embedding
+2025-08-03 11:58:19,722 - INFO - User and Anime weights saved sucesfully....
