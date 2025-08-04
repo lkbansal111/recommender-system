@@ -6,6 +6,16 @@ from config.paths_config import *
 ############# 1. GET_ANIME_FRAME
 
 def getAnimeFrame(anime,path_df):
+    """
+    Retrieves anime details from a CSV file based on anime ID or name.
+
+    Args:
+        anime (int or str): Anime ID (int) or English name (str).
+        path_df (str): Path to the anime data CSV file.
+
+    Returns:
+        pd.DataFrame: Filtered DataFrame with rows corresponding to the anime.
+    """
     df = pd.read_csv(path_df)
     if isinstance(anime,int):
         return df[df.anime_id == anime]
@@ -16,6 +26,16 @@ def getAnimeFrame(anime,path_df):
 ########## 2. GET_SYNOPSIS
 
 def getSynopsis(anime,path_synopsis_df):
+    """
+    Retrieves the synopsis of an anime based on its ID or name.
+
+    Args:
+        anime (int or str): Anime ID (int) or name (str).
+        path_synopsis_df (str): Path to the synopsis CSV file.
+
+    Returns:
+        str: The synopsis of the anime.
+    """
     synopsis_df = pd.read_csv(path_synopsis_df)
     if isinstance(anime,int):
         return synopsis_df[synopsis_df.MAL_ID == anime].sypnopsis.values[0]
@@ -26,6 +46,22 @@ def getSynopsis(anime,path_synopsis_df):
 ########## 3. CONTENT RECOMMENDATION
 
 def find_similar_animes(name, path_anime_weights, path_anime2anime_encoded, path_anime2anime_decoded, path_anime_df, n=10, return_dist=False, neg=False):
+    """
+    Finds animes similar to a given anime using cosine similarity.
+
+    Args:
+        name (str): Name of the input anime.
+        path_anime_weights (str): Path to anime weights file (joblib).
+        path_anime2anime_encoded (str): Path to encoded anime index map.
+        path_anime2anime_decoded (str): Path to decoded anime index map.
+        path_anime_df (str): Path to anime metadata CSV.
+        n (int, optional): Number of similar animes to retrieve. Defaults to 10.
+        return_dist (bool, optional): Whether to return similarity scores and indices. Defaults to False.
+        neg (bool, optional): If True, returns least similar animes. Defaults to False.
+
+    Returns:
+        pd.DataFrame or tuple: DataFrame of similar animes or (dists, closest) if return_dist is True.
+    """
     # Load weights and encoded-decoded mappings
     anime_weights = joblib.load(path_anime_weights)
     anime2anime_encoded = joblib.load(path_anime2anime_encoded)
@@ -82,6 +118,21 @@ def find_similar_animes(name, path_anime_weights, path_anime2anime_encoded, path
 
 
 def find_similar_users(item_input , path_user_weights , path_user2user_encoded , path_user2user_decoded, n=10 , return_dist=False,neg=False):
+    """
+    Finds users similar to a given user based on interaction embeddings.
+
+    Args:
+        item_input (int): User ID to find similar users for.
+        path_user_weights (str): Path to user weights file (joblib).
+        path_user2user_encoded (str): Path to encoded user index map.
+        path_user2user_decoded (str): Path to decoded user index map.
+        n (int, optional): Number of similar users to retrieve. Defaults to 10.
+        return_dist (bool, optional): Whether to return distances and indices. Defaults to False.
+        neg (bool, optional): If True, returns least similar users. Defaults to False.
+
+    Returns:
+        pd.DataFrame or tuple: DataFrame of similar users or (dists, closest) if return_dist is True.
+    """
     try:
 
         user_weights = joblib.load(path_user_weights)
@@ -128,8 +179,17 @@ def find_similar_users(item_input , path_user_weights , path_user2user_encoded ,
 ################## 5. GET USER PREF
 
 def get_user_preferences(user_id , path_rating_df , path_anime_df ):
+    """
+    Retrieves the user's preferred animes based on ratings.
 
+    Args:
+        user_id (int): User ID.
+        path_rating_df (str): Path to user ratings CSV.
+        path_anime_df (str): Path to anime metadata CSV.
 
+    Returns:
+        pd.DataFrame: DataFrame of top-rated animes with their genres.
+    """
     rating_df = pd.read_csv(path_rating_df)
     df = pd.read_csv(path_anime_df)
 
@@ -155,8 +215,20 @@ def get_user_preferences(user_id , path_rating_df , path_anime_df ):
 
 
 def get_user_recommendations(similar_users , user_pref ,path_anime_df , path_synopsis_df, path_rating_df, n=10):
+    """
+    Generates anime recommendations for a user based on preferences of similar users.
 
+    Args:
+        similar_users (pd.DataFrame): DataFrame of similar users with similarity scores.
+        user_pref (pd.DataFrame): DataFrame of current user’s preferred animes.
+        path_anime_df (str): Path to anime metadata CSV.
+        path_synopsis_df (str): Path to anime synopsis CSV.
+        path_rating_df (str): Path to user ratings CSV.
+        n (int, optional): Number of recommendations to return. Defaults to 10.
 
+    Returns:
+        pd.DataFrame: DataFrame of recommended animes with genres and synopsis.
+    """
     recommended_animes = []
     anime_list = []
 
