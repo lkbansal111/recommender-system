@@ -1,3 +1,4 @@
+# ml-app-eks.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,19 +15,28 @@ spec:
     spec:
       containers:
       - name: ml-app-container
-        image: gcr.io/mlops-new-447207/ml-project:latest
+        # Replace ACCOUNT-ID and REGION
+        image: IMAGE_PLACEHOLDER
         ports:
-        - containerPort: 5000  # Replace with the port your app listens on
+        - containerPort: 5000
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: ml-app-service
+  name: ml-app-svc
+  annotations:
+    # Public Network Load Balancer, managed by the AWS Load Balancer Controller
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip   # (instance | ip)
 spec:
   type: LoadBalancer
+  # On clusters created with new *EKS Auto Mode* you can leave this line out,
+  # but adding it is harmless and future-proof:
+  loadBalancerClass: eks.amazonaws.com/nlb
   selector:
     app: ml-app
   ports:
-  - protocol: TCP
-    port: 80
+  - port: 80
     targetPort: 5000
+    protocol: TCP

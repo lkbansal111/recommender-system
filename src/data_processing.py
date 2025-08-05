@@ -58,6 +58,7 @@ class DataProcessor:
         try:
             ### Users
             user_ids = self.rating_df["user_id"].unique().tolist()
+            print(f"len of user_ids {len(user_ids)}")
             self.user2user_encoded = {x : i for i , x in enumerate(user_ids)}
             self.user2user_decoded = {i : x for i , x in enumerate(user_ids)}
             self.rating_df["user"] = self.rating_df["user_id"].map(self.user2user_encoded)

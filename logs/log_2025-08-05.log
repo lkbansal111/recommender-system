@@ -1,0 +1,24 @@
+2025-08-05 06:34:04,002 - INFO - DataProcessing Intialized
+2025-08-05 06:34:05,270 - INFO - Data loaded sucesfully for Data Processing
+2025-08-05 06:34:05,500 - INFO - Filtered users sucesfully...
+2025-08-05 06:34:06,808 - INFO - Scalind done for Processing 
+2025-08-05 06:34:07,049 - INFO - Encoding done for Users and Anime
+2025-08-05 06:34:07,966 - INFO - Data splitted sucesfullyy
+2025-08-05 06:34:07,979 - INFO - user2user_encoded saved sucesfully in processed directory
+2025-08-05 06:34:07,993 - INFO - user2user_decoded saved sucesfully in processed directory
+2025-08-05 06:34:08,044 - INFO - anim2anime_encoded saved sucesfully in processed directory
+2025-08-05 06:34:08,091 - INFO - anim2anime_decoded saved sucesfully in processed directory
+2025-08-05 06:34:14,291 - INFO - ALl the training testing data as well as rating_df is saved now..
+2025-08-05 06:34:22,892 - INFO - DF AND SYNOPSIS_Df saved sucesfullyy...
+2025-08-05 06:34:22,894 - INFO - Data Processing Pipeline Run sucesfully .... Congrats
+2025-08-05 06:34:24,261 - INFO - Model Training & COMET ML initialized..
+2025-08-05 06:34:24,391 - INFO - Data loaded sucesfully for Model Trainig
+2025-08-05 06:34:24,456 - INFO - Succesfully read the YAML file
+2025-08-05 06:34:24,456 - INFO - Loaded configuration from config.yaml
+2025-08-05 06:34:24,951 - INFO - Model created sucesfully....
+2025-08-05 06:35:01,283 - INFO - Model training Completedd.....
+2025-08-05 06:35:01,284 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
+2025-08-05 06:35:01,369 - INFO - Model saved to artifacts/model\model.h5
+2025-08-05 06:35:01,373 - INFO - Extracting weights for user_embedding
+2025-08-05 06:35:01,384 - INFO - Extracting weights for anime_embedding
+2025-08-05 06:35:01,482 - INFO - User and Anime weights saved sucesfully....
