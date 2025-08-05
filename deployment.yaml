@@ -16,7 +16,7 @@ spec:
       containers:
       - name: ml-app-container
         # Replace ACCOUNT-ID and REGION
-        image: IMAGE_PLACEHOLDER
+        image: 286549082538.dkr.ecr.eu-north-1.amazonaws.com/my-repo:latest
         ports:
         - containerPort: 5000
 ---
