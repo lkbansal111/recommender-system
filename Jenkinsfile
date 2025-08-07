@@ -183,6 +183,33 @@ sed "s|__IMAGE__|$FULL_IMAGE|g" k8s/deployment.yaml \
             }
           }
         }
+/*--------------------------------------------------------*/
+stage('Show service URL') {
+  steps {
+    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
+      script {
+        sh '''#!/usr/bin/env bash
+set -euo pipefail
+export PATH="$TOOL_DIR:$PATH"
+
+aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+
+echo "⏳ Waiting for Load Balancer DNS name…"
+for i in {1..30}; do          # 30 × 10 s ≈ 5 min timeout
+  URL=$(kubectl get svc ml-app-svc -n "$K8S_NAMESPACE" \
+        -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+  if [ -n "$URL" ]; then
+    echo ""
+    echo "🚀  Browse your app at:  http://$URL"
+    echo ""
+    exit 0
+  fi
+  sleep 10
+done
+
+echo "Timed-out waiting for the ELB hostname" >&2
+exit 1
+'''
       }
     }
   }
