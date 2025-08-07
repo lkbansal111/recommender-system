@@ -94,28 +94,29 @@ bash -euo pipefail -c "
             }
         }
 
-    stage('Cleanup orphaned EKS cluster') {
-      steps {
-        withCredentials([[
-          $class: 'AmazonWebServicesCredentialsBinding',
-          credentialsId: 'aws-token'          // <- your Jenkins AWS creds ID
-        ]]) {
-          sh '''
-            #!/usr/bin/env bash
-            set +e                                       # don’t fail if cluster absent
-            eksctl get cluster --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" >/dev/null 2>&1
-            if [ $? -eq 0 ]; then
-              echo "[cleanup] Old cluster exists – deleting…"
-              eksctl delete cluster --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --wait
-              echo "[cleanup] Delete finished."
-            else
-              echo "[cleanup] No existing cluster – skipping."
-            fi
-            set -e
-          '''
-        }
-      }
+stage('Cleanup orphaned EKS cluster') {
+  steps {
+    withCredentials([[ $class: 'AmazonWebServicesCredentialsBinding',
+                       credentialsId: 'aws-token']]) {
+      sh '''
+        #!/usr/bin/env bash
+        set +e
+
+        echo "[cleanup] Deleting any leftovers for ${EKS_CLUSTER_NAME} …"
+        # --disable-nodegroup-eviction prevents long waits if NGs never came up
+        eksctl delete cluster               \
+          --name   "$EKS_CLUSTER_NAME"      \
+          --region "$AWS_REGION"            \
+          --wait                            \
+          --disable-nodegroup-eviction || true
+
+        echo "[cleanup] Finished (okay if nothing had to be deleted)."
+        set -e
+      '''
     }
+  }
+}
+
 
    /* ------------------------------------------------------------------ */
     stage('Provision AWS infra') {
