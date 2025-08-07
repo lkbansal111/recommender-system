@@ -17,6 +17,19 @@ pipeline {
 
     stages {
 
+        stage('Clone from GitHub') {
+            steps {
+                echo 'Cloning repository …'
+                checkout scmGit(
+                    branches: [[name: '*/master']],
+                    extensions: [],
+                    userRemoteConfigs: [[
+                        credentialsId: 'github-token',
+                        url: 'https://github.com/lkbansal111/recommender-system.git'
+                    ]]
+                )
+            }
+        }
 
     stage('Install AWS CLI + eksctl + kubectl') {
       steps {
@@ -51,21 +64,7 @@ pipeline {
           fi
         '''
       }
-    }
-
-        stage('Clone from GitHub') {
-            steps {
-                echo 'Cloning repository …'
-                checkout scmGit(
-                    branches: [[name: '*/master']],
-                    extensions: [],
-                    userRemoteConfigs: [[
-                        credentialsId: 'github-token',
-                        url: 'https://github.com/lkbansal111/recommender-system.git'
-                    ]]
-                )
-            }
-        }
+    }        
 
         stage('Create virtualenv') {
             steps {
