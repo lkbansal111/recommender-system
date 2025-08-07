@@ -103,10 +103,10 @@ bash -euo pipefail -c "
           sh '''
             #!/usr/bin/env bash
             set +e                                       # don’t fail if cluster absent
-            eksctl get cluster --name "$CLUSTER" --region "$AWS_REGION" >/dev/null 2>&1
+            eksctl get cluster --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" >/dev/null 2>&1
             if [ $? -eq 0 ]; then
               echo "[cleanup] Old cluster exists – deleting…"
-              eksctl delete cluster --name "$CLUSTER" --region "$AWS_REGION" --wait
+              eksctl delete cluster --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --wait
               echo "[cleanup] Delete finished."
             else
               echo "[cleanup] No existing cluster – skipping."
