@@ -47,6 +47,12 @@ if ! command -v kubectl >/dev/null; then
   -o "$TOOL_DIR/kubectl"
   chmod +x "$TOOL_DIR/kubectl"
 fi
+
+# ---------- added: helm (for AWS LB Controller) ----------
+if ! command -v helm >/dev/null; then
+  curl -sSL https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 \
+  | bash -s -- --no-sudo --dir "$TOOL_DIR"
+fi
 '''
       }
     }
@@ -116,6 +122,71 @@ fi
       }
     }
 
+    /*--------------------------------------------------------*/
+    stage('Ensure kube-system Fargate profile') {   // NEW
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
+          sh '''#!/usr/bin/env bash
+set -euo pipefail
+export PATH="$TOOL_DIR:$PATH"
+
+if ! aws eks describe-fargate-profile                     \
+        --cluster-name "$EKS_CLUSTER_NAME"                \
+        --fargate-profile-name fp-kube-system             \
+        --region "$AWS_REGION" >/dev/null 2>&1; then
+  eksctl create fargateprofile                            \
+        --cluster   "$EKS_CLUSTER_NAME"                   \
+        --name      fp-kube-system                        \
+        --namespace kube-system
+fi
+'''
+        }
+      }
+    }
+
+    /*--------------------------------------------------------*/
+    stage('Install AWS LB Controller') {             // NEW
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
+          sh '''#!/usr/bin/env bash
+set -euo pipefail
+export PATH="$TOOL_DIR:$PATH"
+
+CLUSTER="$EKS_CLUSTER_NAME"
+REGION="$AWS_REGION"
+SA_NS="kube-system"
+SA_NAME="aws-load-balancer-controller"
+ROLE_NAME="${CLUSTER}-lbctl"
+POLICY_ARN="arn:aws:iam::aws:policy/ELBFullAccess"
+
+aws eks update-kubeconfig --region "$REGION" --name "$CLUSTER"
+
+eksctl utils associate-iam-oidc-provider --cluster "$CLUSTER" --region "$REGION" --approve || true
+
+if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1 ; then
+  eksctl create iamserviceaccount \
+    --cluster "$CLUSTER" \
+    --name "$SA_NAME" \
+    --namespace "$SA_NS" \
+    --role-name "$ROLE_NAME" \
+    --attach-policy-arn "$POLICY_ARN" \
+    --region "$REGION" \
+    --approve
+fi
+
+helm repo add eks https://aws.github.io/eks-charts
+helm repo update
+helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n "$SA_NS" \
+  --set clusterName="$CLUSTER" \
+  --set region="$REGION" \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name="$SA_NAME"
+'''
+        }
+      }
+    }
+
 //     /*--------------------------------------------------------*/
 //     stage('Build & push image') {
 //       steps {
@@ -139,7 +210,6 @@ fi
 //         }
 //       }
 //     }
-
     /*--------------------------------------------------------*/
     stage('Ensure namespace exists') {
       steps {
@@ -158,7 +228,7 @@ kubectl get namespace "$K8S_NAMESPACE" >/dev/null 2>&1 \
     }
 
     /*--------------------------------------------------------*/
-    stage('Deploy to EKS (Fargate)') {
+    stage('Deploy to EKS (Fargate)') {     // only sed line changed
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
           script {
@@ -175,9 +245,10 @@ export PATH="$TOOL_DIR:$PATH"
 
 aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
 
-# Render manifest and apply it into the (now-existing) namespace
-sed "s|__IMAGE__|$FULL_IMAGE|g" k8s/deployment.yaml \
-| kubectl apply -f -
+# Inject image + fix LB class
+sed -e "s|__IMAGE__|$FULL_IMAGE|g" \
+    -e "s|loadBalancerClass:.*|loadBalancerClass: service.k8s.aws/nlb|" \
+    k8s/deployment.yaml | kubectl apply -f -
 '''
             }
           }
@@ -186,7 +257,7 @@ sed "s|__IMAGE__|$FULL_IMAGE|g" k8s/deployment.yaml \
     }
 
     /*--------------------------------------------------------*/
-    stage('Show service URL') {
+    stage('Show service URL') {            // timeout already 60 loops
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                           credentialsId: 'aws-token']]) {
@@ -197,31 +268,21 @@ export PATH="$TOOL_DIR:$PATH"
 aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
 
 echo "⏳ Waiting for Load Balancer DNS name…"
-for i in {1..60}; do                       # 10-minute timeout
+for i in {1..60}; do
   URL=$(kubectl get svc ml-app-svc -n "$K8S_NAMESPACE" \
         -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
-
-  kubectl get svc ml-app-svc -n "$K8S_NAMESPACE"    # live status line
-
+  kubectl get svc ml-app-svc -n "$K8S_NAMESPACE"
   if [ -n "$URL" ]; then
-    echo ""
-    echo "🚀  Browse your app at:  http://$URL"
-    echo ""
+    echo -e "\\n🚀  Browse your app at:  http://$URL\\n"
     exit 0
   fi
   sleep 10
 done
 
 echo "❌ Timed-out waiting for the ELB hostname — dumping diagnostics …" >&2
-echo "----- kubectl describe svc -----" >&2
 kubectl describe svc ml-app-svc -n "$K8S_NAMESPACE" >&2 || true
-
-echo "----- AWS LB controller deployment -----" >&2
 kubectl get deployment aws-load-balancer-controller -n kube-system -o wide >&2 || true
-
-echo "----- Last 50 log lines -----" >&2
 kubectl logs -n kube-system deploy/aws-load-balancer-controller --tail=50 >&2 || true
-
 exit 1
 '''
         }
