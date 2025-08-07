@@ -140,10 +140,10 @@ fi
 //       }
 //     }
 
+    /*--------------------------------------------------------*/
     stage('Ensure namespace exists') {
       steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                          credentialsId: 'aws-token']]) {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
           sh '''#!/usr/bin/env bash
 set -euo pipefail
 export PATH="$TOOL_DIR:$PATH"
@@ -158,10 +158,9 @@ kubectl get namespace "$K8S_NAMESPACE" >/dev/null 2>&1 \
     }
 
     /*--------------------------------------------------------*/
-   stage('Deploy to EKS (Fargate)') {
+    stage('Deploy to EKS (Fargate)') {
       steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                          credentialsId: 'aws-token']]) {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
           script {
             def accountId = sh(
               script: 'aws sts get-caller-identity --query Account --output text',
@@ -183,12 +182,15 @@ sed "s|__IMAGE__|$FULL_IMAGE|g" k8s/deployment.yaml \
             }
           }
         }
-/*--------------------------------------------------------*/
-stage('Show service URL') {
-  steps {
-    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
-      script {
-        sh '''#!/usr/bin/env bash
+      }
+    }
+
+    /*--------------------------------------------------------*/
+    stage('Show service URL') {
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
+          script {
+            sh '''#!/usr/bin/env bash
 set -euo pipefail
 export PATH="$TOOL_DIR:$PATH"
 
@@ -210,7 +212,10 @@ done
 echo "Timed-out waiting for the ELB hostname" >&2
 exit 1
 '''
+          }
+        }
       }
     }
-  }
-}
+
+  } /* end stages */
+}   /* end pipeline */
