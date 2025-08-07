@@ -94,28 +94,28 @@ bash -euo pipefail -c "
             }
         }
 
-stage('Cleanup orphaned EKS cluster') {
-  steps {
-    withCredentials([[ $class: 'AmazonWebServicesCredentialsBinding',
-                       credentialsId: 'aws-token']]) {
-      sh '''
-        #!/usr/bin/env bash
-        set +e
+// stage('Cleanup orphaned EKS cluster') {
+//   steps {
+//     withCredentials([[ $class: 'AmazonWebServicesCredentialsBinding',
+//                        credentialsId: 'aws-token']]) {
+//       sh '''
+//         #!/usr/bin/env bash
+//         set +e
 
-        echo "[cleanup] Deleting any leftovers for ${EKS_CLUSTER_NAME} …"
-        # --disable-nodegroup-eviction prevents long waits if NGs never came up
-        eksctl delete cluster               \
-          --name   "$EKS_CLUSTER_NAME"      \
-          --region "$AWS_REGION"            \
-          --wait                            \
-          --disable-nodegroup-eviction || true
+//         echo "[cleanup] Deleting any leftovers for ${EKS_CLUSTER_NAME} …"
+//         # --disable-nodegroup-eviction prevents long waits if NGs never came up
+//         eksctl delete cluster               \
+//           --name   "$EKS_CLUSTER_NAME"      \
+//           --region "$AWS_REGION"            \
+//           --wait                            \
+//           --disable-nodegroup-eviction || true
 
-        echo "[cleanup] Finished (okay if nothing had to be deleted)."
-        set -e
-      '''
-    }
-  }
-}
+//         echo "[cleanup] Finished (okay if nothing had to be deleted)."
+//         set -e
+//       '''
+//     }
+//   }
+// }
 
 
    /* ------------------------------------------------------------------ */
