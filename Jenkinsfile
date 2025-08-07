@@ -51,7 +51,7 @@ fi
 # ---------- added: helm (for AWS LB Controller) ----------
 if ! command -v helm >/dev/null; then
   curl -sSL https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 \
-  | bash -s -- --no-sudo "$TOOL_DIR"
+| HELM_INSTALL_DIR="$TOOL_DIR" bash -s -- --no-sudo
 fi
 '''
       }
