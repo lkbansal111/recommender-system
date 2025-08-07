@@ -33,7 +33,7 @@ mkdir -p "$TOOL_DIR"; export PATH="$TOOL_DIR:$PATH"
 
 if ! command -v aws >/dev/null; then
   curl -sSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscli.zip
-  unzip -qq /tmp/awscli.zip -d /tmp
+  unzip -qq -o /tmp/awscli.zip -d /tmp  
   /tmp/aws/install -i /tmp/aws-cli -b "$TOOL_DIR" --update
 fi
 
