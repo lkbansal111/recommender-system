@@ -13,6 +13,8 @@ pipeline {
         IMAGE_TAG         = 'latest'
         SA_NAME           = 'ml-app-sa'               // service account for IRSA
         K8S_NAMESPACE    = 'prod'          //  <--- NEW – must match manifest
+        TOOL_DIR = "${WORKSPACE}/bin"
+        PATH     = "${TOOL_DIR}:${env.PATH}"
     }
 
     stages {
@@ -33,44 +35,41 @@ pipeline {
 
 stage('Install AWS CLI + eksctl + kubectl') {
     steps {
-        sh(
-            script: '''
-                set -euo pipefail
+        sh '''
+#!/usr/bin/env bash          # <- this line is what the agent will execute
+set -euo pipefail
 
-                TOOL_DIR="$WORKSPACE/bin"
-                mkdir -p "$TOOL_DIR"
-                export PATH="$TOOL_DIR:$PATH"
+TOOL_DIR="$WORKSPACE/bin"
+mkdir -p "$TOOL_DIR"
+export PATH="$TOOL_DIR:$PATH"
 
-                # --- AWS CLI ----------------------------------------------------
-                if ! command -v aws >/dev/null; then
-                  echo "[tooling] installing AWS CLI v2 …"
-                  curl -sSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscli.zip
-                  unzip -qq /tmp/awscli.zip -d /tmp
-                  /tmp/aws/install -i /tmp/aws-cli -b "$TOOL_DIR"
-                fi
+# ---------- AWS CLI ----------------------------------------------------
+if ! command -v aws >/dev/null; then
+  echo "[tooling] installing AWS CLI v2 …"
+  curl -sSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscli.zip
+  unzip -qq /tmp/awscli.zip -d /tmp
+  /tmp/aws/install -i /tmp/aws-cli -b "$TOOL_DIR"
+fi
 
-                # --- eksctl -----------------------------------------------------
-                if ! command -v eksctl >/dev/null; then
-                  echo "[tooling] installing eksctl …"
-                  curl -sSL https://github.com/eksctl-io/eksctl/releases/latest/download/\
+# ---------- eksctl -----------------------------------------------------
+if ! command -v eksctl >/dev/null; then
+  echo "[tooling] installing eksctl …"
+  curl -sSL https://github.com/eksctl-io/eksctl/releases/latest/download/\
 eksctl_Linux_amd64.tar.gz | tar -xz -C "$TOOL_DIR"
-                fi
+fi
 
-                # --- kubectl ----------------------------------------------------
-                if ! command -v kubectl >/dev/null; then
-                  echo "[tooling] installing kubectl …"
-                  curl -sSL "https://dl.k8s.io/release/$(curl -sSL \
+# ---------- kubectl ----------------------------------------------------
+if ! command -v kubectl >/dev/null; then
+  echo "[tooling] installing kubectl …"
+  curl -sSL "https://dl.k8s.io/release/$(curl -sSL \
 https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
-                       -o "$TOOL_DIR/kubectl"
-                  chmod +x "$TOOL_DIR/kubectl"
-                fi
-            ''',
-            shebang: '#!/usr/bin/env bash'   // <-- run the whole block under bash
-        )
+       -o "$TOOL_DIR/kubectl"
+  chmod +x "$TOOL_DIR/kubectl"
+fi
+'''
     }
 }
 
-    
 
         stage('Create virtualenv') {
             steps {
