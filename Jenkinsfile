@@ -12,6 +12,7 @@ pipeline {
         AWS_CLI_PATH      = '/usr/local/bin'       // path where aws cli is installed
         IMAGE_TAG         = 'latest'
         SA_NAME           = 'ml-app-sa'               // service account for IRSA
+        K8S_NAMESPACE    = 'prod'          //  <--- NEW – must match manifest
     }
 
     stages {
