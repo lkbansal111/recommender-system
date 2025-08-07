@@ -140,12 +140,33 @@ docker push "$ECR_URL:$IMAGE_TAG"
       }
     }
 
-    /*--------------------------------------------------------*/
-    stage('Deploy to EKS (Fargate)') {
+    stage('Ensure namespace exists') {
       steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
+                          credentialsId: 'aws-token']]) {
+          sh '''#!/usr/bin/env bash
+set -euo pipefail
+export PATH="$TOOL_DIR:$PATH"
+
+aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+
+kubectl get namespace "$K8S_NAMESPACE" >/dev/null 2>&1 \
+  || kubectl create namespace "$K8S_NAMESPACE"
+'''
+        }
+      }
+    }
+
+    /*--------------------------------------------------------*/
+   stage('Deploy to EKS (Fargate)') {
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
+                          credentialsId: 'aws-token']]) {
           script {
-            def accountId = sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
+            def accountId = sh(
+              script: 'aws sts get-caller-identity --query Account --output text',
+              returnStdout: true
+            ).trim()
             def fullImage = "${accountId}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/${env.ECR_REPO}:${IMAGE_TAG}"
 
             withEnv(["FULL_IMAGE=${fullImage}"]) {
@@ -155,9 +176,9 @@ export PATH="$TOOL_DIR:$PATH"
 
 aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
 
-# substitute image placeholder and apply
+# Render manifest and apply it into the (now-existing) namespace
 sed "s|__IMAGE__|$FULL_IMAGE|g" k8s/deployment.yaml \
-| kubectl apply -n "$K8S_NAMESPACE" -f -
+| kubectl apply -f -
 '''
             }
           }
