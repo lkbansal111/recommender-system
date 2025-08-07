@@ -94,6 +94,29 @@ bash -euo pipefail -c "
             }
         }
 
+    stage('Cleanup orphaned EKS cluster') {
+      steps {
+        withCredentials([[
+          $class: 'AmazonWebServicesCredentialsBinding',
+          credentialsId: 'aws-credentials'          // <- your Jenkins AWS creds ID
+        ]]) {
+          sh '''
+            #!/usr/bin/env bash
+            set +e                                       # don’t fail if cluster absent
+            eksctl get cluster --name "$CLUSTER" --region "$AWS_REGION" >/dev/null 2>&1
+            if [ $? -eq 0 ]; then
+              echo "[cleanup] Old cluster exists – deleting…"
+              eksctl delete cluster --name "$CLUSTER" --region "$AWS_REGION" --wait
+              echo "[cleanup] Delete finished."
+            else
+              echo "[cleanup] No existing cluster – skipping."
+            fi
+            set -e
+          '''
+        }
+      }
+    }
+
    /* ------------------------------------------------------------------ */
     stage('Provision AWS infra') {
       steps {
