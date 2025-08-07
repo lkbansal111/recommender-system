@@ -11,6 +11,7 @@ pipeline {
         EKS_CLUSTER_NAME  = 'ml-app-cluster'       // <-- EKS cluster name
         AWS_CLI_PATH      = '/usr/local/bin'       // path where aws cli is installed
         IMAGE_TAG         = 'latest'
+        SA_NAME           = 'ml-app-sa'               // service account for IRSA
     }
 
     stages {
@@ -55,40 +56,100 @@ pipeline {
             }
         }
 
-        // stage('Build & Push Docker Image to ECR') {
-        //     steps {
-        //         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
-        //             script {
-        //                 def accountId = sh(script: "aws sts get-caller-identity --query Account --output text", returnStdout: true).trim()
-        //                 def ecrUrl = "${accountId}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/${env.ECR_REPO}"
+   /* ------------------------------------------------------------------ */
+    stage('Provision AWS infra') {
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
+          sh """
+            export PATH=\$PATH:${AWS_CLI_PATH}
 
-        //                 sh """
-        //                     export PATH=\$PATH:${AWS_CLI_PATH}
-        //                     aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ecrUrl}
-        //                     docker build -t ${env.ECR_REPO}:${IMAGE_TAG} .
-        //                     docker tag ${env.ECR_REPO}:${IMAGE_TAG} ${ecrUrl}:${IMAGE_TAG}
-        //                     docker push ${ecrUrl}:${IMAGE_TAG}
-        //                 """
-        //             }
-        //         }
-        //     }
-        // }
+            ############### ECR ##########################################
+            echo "Ensuring ECR repo exists…"
+            aws ecr describe-repositories                        \\
+              --repository-names ${ECR_REPO} --region ${AWS_REGION} || \\
+            aws ecr create-repository                            \\
+              --repository-name ${ECR_REPO}                      \\
+              --image-scanning-configuration scanOnPush=true     \\
+              --region ${AWS_REGION}
 
-        stage('Deploy to EKS') {
-            steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
-                    echo 'Updating kubeconfig & applying manifests …'
-                    sh """
-                        export PATH=\$PATH:${AWS_CLI_PATH}
-                        aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER_NAME}
+            ############### EKS #########################################
+            echo "Ensuring EKS cluster exists…"
+            if ! aws eks describe-cluster --name ${EKS_CLUSTER_NAME} --region ${AWS_REGION} >/dev/null 2>&1; then
+              echo "Creating EKS cluster (this can take ~15 min)…"
+              eksctl create cluster --name ${EKS_CLUSTER_NAME} --region ${AWS_REGION} --nodes 2
+            fi
 
-                        # (Optional) substitute image tag into manifest before apply
-                        # sed -i "s|IMAGE_PLACEHOLDER|${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}|g" deployment.yaml
+            ############### OIDC & IRSA ###############################
+            echo "Associating OIDC provider (idempotent)…"
+            eksctl utils associate-iam-oidc-provider --cluster ${EKS_CLUSTER_NAME} --approve
 
-                        kubectl apply -f deployment.yaml
-                    """
-                }
+            # Minimal policy example: replace with anything your app needs
+            POLICY_NAME=${SA_NAME}-policy
+            POLICY_ARN=\$(aws iam list-policies --query "Policies[?PolicyName=='\$POLICY_NAME'].Arn" --output text)
+            if [ -z "\$POLICY_ARN" ]; then
+              cat > /tmp/sa_policy.json <<'EOF'
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                { "Effect": "Allow", "Action": [ "s3:ListBucket" ], "Resource": "*" }
+              ]
             }
+EOF
+              POLICY_ARN=\$(aws iam create-policy --policy-name \$POLICY_NAME --policy-document file:///tmp/sa_policy.json --query Policy.Arn --output text)
+            fi
+
+            eksctl create iamserviceaccount                           \\
+              --name      ${SA_NAME}                                  \\
+              --namespace ${K8S_NAMESPACE}                            \\
+              --cluster   ${EKS_CLUSTER_NAME}                         \\
+              --attach-policy-arn \$POLICY_ARN                        \\
+              --approve                                               \\
+              --override-existing-serviceaccounts
+          """
         }
+      }
     }
+
+    /* ------------------------------------------------------------------ */
+    stage('Build & push image') {
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
+          script {
+            def accountId = sh(script: "aws sts get-caller-identity --query Account --output text", returnStdout: true).trim()
+            def ecrUrl    = "${accountId}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/${env.ECR_REPO}"
+
+            sh """
+              export PATH=\$PATH:${AWS_CLI_PATH}
+              aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ecrUrl}
+
+              docker build -t ${env.ECR_REPO}:${IMAGE_TAG} .
+              docker tag  ${env.ECR_REPO}:${IMAGE_TAG} ${ecrUrl}:${IMAGE_TAG}
+              docker push ${ecrUrl}:${IMAGE_TAG}
+            """
+          }
+        }
+      }
+    }
+
+    /* ------------------------------------------------------------------ */
+    stage('Deploy to EKS') {
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
+          script {
+            def accountId = sh(script: "aws sts get-caller-identity --query Account --output text", returnStdout: true).trim()
+            def fullImage = "${accountId}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/${env.ECR_REPO}:${IMAGE_TAG}"
+            sh """
+              export PATH=\$PATH:${AWS_CLI_PATH}
+              aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER_NAME}
+
+              # inject the freshly built image & SA into the manifest on the fly
+              sed -e "s|__IMAGE__|${fullImage}|g"         \\
+                  -e "s|__SERVICE_ACCOUNT__|${SA_NAME}|g" \\
+                  k8s/deployment.yaml | kubectl apply -f -
+            """
+          }
+        }
+      }
+    }
+  }
 }

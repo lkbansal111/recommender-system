@@ -8,3 +8,4 @@ MLOPS_PROJECT_2.egg-info/
 .env
 secrets.txt
 __pycache__/
+ns.py
