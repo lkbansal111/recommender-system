@@ -188,18 +188,21 @@ sed "s|__IMAGE__|$FULL_IMAGE|g" k8s/deployment.yaml \
     /*--------------------------------------------------------*/
     stage('Show service URL') {
       steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
-          script {
-            sh '''#!/usr/bin/env bash
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
+                          credentialsId: 'aws-token']]) {
+          sh '''#!/usr/bin/env bash
 set -euo pipefail
 export PATH="$TOOL_DIR:$PATH"
 
 aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
 
 echo "⏳ Waiting for Load Balancer DNS name…"
-for i in {1..30}; do          # 30 × 10 s ≈ 5 min timeout
+for i in {1..60}; do                       # 10-minute timeout
   URL=$(kubectl get svc ml-app-svc -n "$K8S_NAMESPACE" \
         -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+
+  kubectl get svc ml-app-svc -n "$K8S_NAMESPACE"    # live status line
+
   if [ -n "$URL" ]; then
     echo ""
     echo "🚀  Browse your app at:  http://$URL"
@@ -209,10 +212,18 @@ for i in {1..30}; do          # 30 × 10 s ≈ 5 min timeout
   sleep 10
 done
 
-echo "Timed-out waiting for the ELB hostname" >&2
+echo "❌ Timed-out waiting for the ELB hostname — dumping diagnostics …" >&2
+echo "----- kubectl describe svc -----" >&2
+kubectl describe svc ml-app-svc -n "$K8S_NAMESPACE" >&2 || true
+
+echo "----- AWS LB controller deployment -----" >&2
+kubectl get deployment aws-load-balancer-controller -n kube-system -o wide >&2 || true
+
+echo "----- Last 50 log lines -----" >&2
+kubectl logs -n kube-system deploy/aws-load-balancer-controller --tail=50 >&2 || true
+
 exit 1
 '''
-          }
         }
       }
     }
