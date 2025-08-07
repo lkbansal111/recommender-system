@@ -98,7 +98,7 @@ bash -euo pipefail -c "
       steps {
         withCredentials([[
           $class: 'AmazonWebServicesCredentialsBinding',
-          credentialsId: 'aws-credentials'          // <- your Jenkins AWS creds ID
+          credentialsId: 'aws-token'          // <- your Jenkins AWS creds ID
         ]]) {
           sh '''
             #!/usr/bin/env bash
