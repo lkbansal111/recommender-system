@@ -13,7 +13,6 @@ spec:
       labels:
         app: ml-app
     spec:
-      serviceAccountName: __SERVICE_ACCOUNT__   # <- replaced by sed
       containers:
       - name: ml-app
         image: __IMAGE__                        # <- replaced by sed

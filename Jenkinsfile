@@ -116,29 +116,29 @@ fi
       }
     }
 
-    /*--------------------------------------------------------*/
-    stage('Build & push image') {
-      steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
-          script {
-            def accountId = sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
-            def ecrUrl    = "${accountId}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/${env.ECR_REPO}"
+//     /*--------------------------------------------------------*/
+//     stage('Build & push image') {
+//       steps {
+//         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
+//           script {
+//             def accountId = sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
+//             def ecrUrl    = "${accountId}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/${env.ECR_REPO}"
 
-            withEnv(["ECR_URL=${ecrUrl}"]) {
-              sh '''#!/usr/bin/env bash
-set -euo pipefail
-aws ecr get-login-password --region "$AWS_REGION" \
-  | docker login --username AWS --password-stdin "$ECR_URL"
+//             withEnv(["ECR_URL=${ecrUrl}"]) {
+//               sh '''#!/usr/bin/env bash
+// set -euo pipefail
+// aws ecr get-login-password --region "$AWS_REGION" \
+//   | docker login --username AWS --password-stdin "$ECR_URL"
 
-docker build -t "$ECR_REPO:$IMAGE_TAG" .
-docker tag  "$ECR_REPO:$IMAGE_TAG" "$ECR_URL:$IMAGE_TAG"
-docker push "$ECR_URL:$IMAGE_TAG"
-'''
-            }
-          }
-        }
-      }
-    }
+// docker build -t "$ECR_REPO:$IMAGE_TAG" .
+// docker tag  "$ECR_REPO:$IMAGE_TAG" "$ECR_URL:$IMAGE_TAG"
+// docker push "$ECR_URL:$IMAGE_TAG"
+// '''
+//             }
+//           }
+//         }
+//       }
+//     }
 
     stage('Ensure namespace exists') {
       steps {
