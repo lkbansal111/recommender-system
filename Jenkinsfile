@@ -5,10 +5,10 @@ pipeline {
         VENV_DIR          = 'venv'
 
         /* ── AWS-specific settings ───────────────────────────────────── */
-        AWS_ACCOUNT_ID    = '286549082538'        // <-- your AWS account
-        AWS_REGION        = 'eu-north-1'          // <-- preferred region
-        ECR_REPO          = 'my-repo'              // <-- ECR repo name
-        EKS_CLUSTER_NAME  = 'ml-app-cluster'       // <-- EKS cluster name
+        AWS_ACCOUNT_ID    = '286549082538'         // <-- your AWS account
+        AWS_REGION        = 'eu-north-1'           // <-- preferred region
+        ECR_REPO          = 'my-repo'              // <-- ECR repo name (matches terraform.tfvars)
+        EKS_CLUSTER_NAME  = 'ml-app-cluster'       // <-- EKS cluster name (from module: ml-app-cluster)
         AWS_CLI_PATH      = '/usr/local/bin'       // path where aws cli is installed
         IMAGE_TAG         = 'latest'
     }
@@ -26,6 +26,21 @@ pipeline {
                         url: 'https://github.com/lkbansal111/recommender-system.git'
                     ]]
                 )
+            }
+        }
+
+        /* NEW: Provision infra with Terraform */
+        stage('Provision AWS (Terraform)') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
+                    dir('infra') {
+                        sh """
+                            export AWS_DEFAULT_REGION=${AWS_REGION}
+                            terraform init -input=false
+                            terraform apply -auto-approve -input=false
+                        """
+                    }
+                }
             }
         }
 
@@ -55,24 +70,24 @@ pipeline {
             }
         }
 
-        // stage('Build & Push Docker Image to ECR') {
-        //     steps {
-        //         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
-        //             script {
-        //                 def accountId = sh(script: "aws sts get-caller-identity --query Account --output text", returnStdout: true).trim()
-        //                 def ecrUrl = "${accountId}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/${env.ECR_REPO}"
+        stage('Build & Push Docker Image to ECR') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
+                    script {
+                        def accountId = sh(script: "aws sts get-caller-identity --query Account --output text", returnStdout: true).trim()
+                        def ecrUrl = "${accountId}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/${env.ECR_REPO}"
 
-        //                 sh """
-        //                     export PATH=\$PATH:${AWS_CLI_PATH}
-        //                     aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ecrUrl}
-        //                     docker build -t ${env.ECR_REPO}:${IMAGE_TAG} .
-        //                     docker tag ${env.ECR_REPO}:${IMAGE_TAG} ${ecrUrl}:${IMAGE_TAG}
-        //                     docker push ${ecrUrl}:${IMAGE_TAG}
-        //                 """
-        //             }
-        //         }
-        //     }
-        // }
+                        sh """
+                            export PATH=\$PATH:${AWS_CLI_PATH}
+                            aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ecrUrl}
+                            docker build -t ${env.ECR_REPO}:${IMAGE_TAG} .
+                            docker tag ${env.ECR_REPO}:${IMAGE_TAG} ${ecrUrl}:${IMAGE_TAG}
+                            docker push ${ecrUrl}:${IMAGE_TAG}
+                        """
+                    }
+                }
+            }
+        }
 
         stage('Deploy to EKS') {
             steps {
@@ -82,8 +97,8 @@ pipeline {
                         export PATH=\$PATH:${AWS_CLI_PATH}
                         aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER_NAME}
 
-                        # (Optional) substitute image tag into manifest before apply
-                        # sed -i "s|IMAGE_PLACEHOLDER|${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}|g" deployment.yaml
+                        # Template the image into the manifest before apply
+                        sed -i "s|IMAGE_PLACEHOLDER|${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}|g" deployment.yaml
 
                         kubectl apply -f deployment.yaml
                     """

@@ -1,4 +1,3 @@
-# ml-app-eks.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,24 +14,42 @@ spec:
     spec:
       containers:
       - name: ml-app-container
-        # Replace ACCOUNT-ID and REGION
-        image: 286549082538.dkr.ecr.eu-north-1.amazonaws.com/my-repo:latest
+        image: IMAGE_PLACEHOLDER   # <-- replaced by Jenkins sed
         ports:
         - containerPort: 5000
+        # (recommended) add basic health checks + small resources
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 5000
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: ml-app-svc
   annotations:
-    # Public Network Load Balancer, managed by the AWS Load Balancer Controller
+    # Public Network Load Balancer
     service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
     service.beta.kubernetes.io/aws-load-balancer-type: external
-    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip   # (instance | ip)
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip  # (instance|ip)
 spec:
   type: LoadBalancer
-  # On clusters created with new *EKS Auto Mode* you can leave this line out,
-  # but adding it is harmless and future-proof:
+  # On new EKS Auto Mode clusters this can be omitted, but harmless to keep:
   loadBalancerClass: eks.amazonaws.com/nlb
   selector:
     app: ml-app
