@@ -55,7 +55,14 @@ module "eks" {
   }
 }
 
-variable "region" { type = string, default = "us-east-1" }
+variable "region" { 
+  type = string, 
+  default = "us-east-1" 
+  }
 
-output "cluster_name"   { value = module.eks.cluster_name }
-output "cluster_region" { value = var.region }
+output "cluster_name"   { 
+  value = module.eks.cluster_name 
+  }
+output "cluster_region" { 
+  value = var.region 
+  }
