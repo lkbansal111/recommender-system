@@ -57,25 +57,25 @@ find "$TF_DIR" -maxdepth 1 -type f -name '*.tf' | grep -q . || { echo "ERROR: no
       }
     }
 
-    stage('Provision AWS (Terraform)') {
-      steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
-          sh '''#!/usr/bin/env sh
+stage('Provision AWS (Terraform)') {
+  steps {
+    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
+      sh '''#!/usr/bin/env sh
 set -eux
 
-# 1) create a container (no mounts)
-docker create --name tfc \
+# 1) start a long-lived terraform container
+CID=$(docker run -d \
   --entrypoint sh \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
   -e AWS_REGION -e AWS_DEFAULT_REGION="${AWS_REGION}" \
   hashicorp/terraform:1.9.5 \
-  -lc "sleep infinity"
+  -lc "sleep infinity")
 
-# 2) copy terraform dir into container
-docker cp "${TF_DIR}/." tfc:/workspace/
+# 2) copy terraform files in
+docker cp "${TF_DIR}/." "$CID":/workspace/
 
-# 3) run terraform in that copied directory
-docker exec tfc sh -lc '
+# 3) run terraform
+docker exec "$CID" sh -lc '
   set -e
   cd /workspace
   terraform init -input=false
@@ -83,31 +83,32 @@ docker exec tfc sh -lc '
 '
 
 # 4) cleanup
-docker rm -f tfc
+docker rm -f "$CID"
 '''
-        }
-      }
     }
+  }
+}
 
-    stage('DVC pull (from S3)') {
-      steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
-          sh '''#!/usr/bin/env sh
+
+stage('DVC pull (from S3)') {
+  steps {
+    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
+      sh '''#!/usr/bin/env sh
 set -eux
 
-# 1) create a python container
-docker create --name dvc \
+# 1) start a python container
+CID=$(docker run -d \
   --entrypoint sh \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
   -e AWS_REGION -e AWS_DEFAULT_REGION="${AWS_REGION}" \
   python:3.11-slim \
-  -lc "sleep infinity"
+  -lc "sleep infinity")
 
-# 2) copy WHOLE repo in (dvc needs .dvc/, .dvcignore, etc.)
-docker cp . dvc:/workspace
+# 2) copy full repo (DVC needs .dvc etc.)
+docker cp . "$CID":/workspace
 
-# 3) install deps + dvc pull
-docker exec dvc sh -lc '
+# 3) install + pull
+docker exec "$CID" sh -lc '
   set -e
   apt-get update && apt-get install -y --no-install-recommends git curl && rm -rf /var/lib/apt/lists/*
   python -m pip install --no-cache-dir -U pip
@@ -116,15 +117,16 @@ docker exec dvc sh -lc '
   dvc pull
 '
 
-# 4) copy back pulled artifacts into Jenkins workspace
-docker cp dvc:/workspace/. "$PWD"
+# 4) copy pulled artifacts back
+docker cp "$CID":/workspace/. "$PWD"
 
 # 5) cleanup
-docker rm -f dvc
+docker rm -f "$CID"
 '''
-        }
-      }
     }
+  }
+}
+
 
     stage('Build & Push Docker Image to ECR') {
       steps {
