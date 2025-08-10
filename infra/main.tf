@@ -5,7 +5,9 @@ terraform {
   }
 }
 
-provider "aws" { region = var.region }
+provider "aws" {
+  region = var.region
+}
 
 data "aws_availability_zones" "available" {}
 
@@ -19,11 +21,11 @@ module "vpc" {
   azs            = slice(data.aws_availability_zones.available.names, 0, 2)
   public_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
 
-  enable_nat_gateway       = false
-  single_nat_gateway       = false
-  map_public_ip_on_launch  = true
-  enable_dns_hostnames     = true
-  enable_dns_support       = true
+  enable_nat_gateway      = false
+  single_nat_gateway      = false
+  map_public_ip_on_launch = true
+  enable_dns_hostnames    = true
+  enable_dns_support      = true
 }
 
 module "eks" {
@@ -45,9 +47,9 @@ module "eks" {
 
   eks_managed_node_groups = {
     default = {
-      desired_size  = 1
-      min_size      = 1
-      max_size      = 1
+      desired_size   = 1
+      min_size       = 1
+      max_size       = 1
       instance_types = ["t3a.small", "t3.small"]
       capacity_type  = "ON_DEMAND"
       subnet_ids     = module.vpc.public_subnets
@@ -55,14 +57,15 @@ module "eks" {
   }
 }
 
-variable "region" { 
-  type = string, 
-  default = "us-east-1" 
-  }
+variable "region" {
+  type    = string
+  default = "us-east-1"
+}
 
-output "cluster_name"   { 
-  value = module.eks.cluster_name 
-  }
-output "cluster_region" { 
-  value = var.region 
-  }
+output "cluster_name" {
+  value = module.eks.cluster_name
+}
+
+output "cluster_region" {
+  value = var.region
+}
