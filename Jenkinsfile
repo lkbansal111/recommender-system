@@ -9,13 +9,13 @@ pipeline {
     EKS_CLUSTER_NAME = 'ml-app-cluster'
     IMAGE_TAG        = 'latest'
 
-    // WSL + Docker Desktop TCP
+    // talk to Docker Desktop from WSL/Jenkins
     DOCKER_HOST      = 'tcp://host.docker.internal:2375'
     DOCKER_BUILDKIT  = '1'
 
-    // ---- paths in your repo ----
-    TF_DIR           = 'infra'              // <--- change if your terraform lives elsewhere
-    K8S_MANIFEST     = 'deployment.yaml'    // <--- change if manifest path differs
+    // repo paths
+    TF_DIR           = 'infra'
+    K8S_MANIFEST     = 'deployment.yaml'
   }
 
   stages {
@@ -49,24 +49,10 @@ docker ps
         sh '''#!/usr/bin/env sh
 set -e
 echo "Workspace: $PWD"
-echo "Listing top-level:"
 ls -la
-
 echo "Checking TF_DIR: $TF_DIR"
-if [ ! -d "$TF_DIR" ]; then
-  echo "ERROR: TF_DIR '$TF_DIR' does not exist in repo root."
-  echo "Hint: set TF_DIR correctly in Jenkinsfile environment { TF_DIR = 'path/to/terraform' }"
-  exit 1
-fi
-
-echo "Listing $TF_DIR:"
-ls -la "$TF_DIR"
-
-if ! find "$TF_DIR" -maxdepth 1 -type f -name '*.tf' | grep -q .; then
-  echo "ERROR: No .tf files found in '$TF_DIR'."
-  echo "Hint: ensure terraform files are present on branch 'dev' or update TF_DIR."
-  exit 1
-fi
+test -d "$TF_DIR" || { echo "ERROR: TF_DIR '$TF_DIR' not found"; exit 1; }
+find "$TF_DIR" -maxdepth 1 -type f -name '*.tf' | grep -q . || { echo "ERROR: no .tf in $TF_DIR"; exit 1; }
 '''
       }
     }
@@ -75,14 +61,29 @@ fi
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
           sh '''#!/usr/bin/env sh
-set -e
-docker run --rm \
+set -eux
+
+# 1) create a container (no mounts)
+docker create --name tfc \
   --entrypoint sh \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
   -e AWS_REGION -e AWS_DEFAULT_REGION="${AWS_REGION}" \
-  -v "$PWD":/workspace -w "/workspace/${TF_DIR}" \
   hashicorp/terraform:1.9.5 \
-  -lc "terraform init -input=false && terraform apply -auto-approve -input=false"
+  -lc "sleep infinity"
+
+# 2) copy terraform dir into container
+docker cp "${TF_DIR}/." tfc:/workspace/
+
+# 3) run terraform in that copied directory
+docker exec tfc sh -lc '
+  set -e
+  cd /workspace
+  terraform init -input=false
+  terraform apply -auto-approve -input=false
+'
+
+# 4) cleanup
+docker rm -f tfc
 '''
         }
       }
@@ -92,20 +93,34 @@ docker run --rm \
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
           sh '''#!/usr/bin/env sh
-set -e
-docker run --rm \
+set -eux
+
+# 1) create a python container
+docker create --name dvc \
   --entrypoint sh \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
   -e AWS_REGION -e AWS_DEFAULT_REGION="${AWS_REGION}" \
-  -v "$PWD":/workspace -w /workspace \
   python:3.11-slim \
-  -lc "
-    set -e
-    apt-get update && apt-get install -y --no-install-recommends git curl && rm -rf /var/lib/apt/lists/*
-    python -m pip install --no-cache-dir -U pip
-    python -m pip install --no-cache-dir 'dvc[s3]'
-    dvc pull
-  "
+  -lc "sleep infinity"
+
+# 2) copy WHOLE repo in (dvc needs .dvc/, .dvcignore, etc.)
+docker cp . dvc:/workspace
+
+# 3) install deps + dvc pull
+docker exec dvc sh -lc '
+  set -e
+  apt-get update && apt-get install -y --no-install-recommends git curl && rm -rf /var/lib/apt/lists/*
+  python -m pip install --no-cache-dir -U pip
+  python -m pip install --no-cache-dir "dvc[s3]"
+  cd /workspace
+  dvc pull
+'
+
+# 4) copy back pulled artifacts into Jenkins workspace
+docker cp dvc:/workspace/. "$PWD"
+
+# 5) cleanup
+docker rm -f dvc
 '''
         }
       }
@@ -115,12 +130,13 @@ docker run --rm \
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
           sh '''#!/usr/bin/env sh
-set -e
+set -eux
 docker run --rm \
   --entrypoint sh \
   -e DOCKER_HOST="${DOCKER_HOST}" \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN -e AWS_REGION \
-  -v "$PWD":/workspace -w /workspace \
+  -w /workspace \
+  -v "$PWD":/workspace:ro \
   docker:24-cli \
   -lc "
     set -e
@@ -128,17 +144,16 @@ docker run --rm \
     pip install --no-cache-dir awscli
 
     ECR_HOST='${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com'
-    ECR_URL=\"${ECR_HOST}/${ECR_REPO}\"
+    ECR_URL=\\"${ECR_HOST}/${ECR_REPO}\\"
 
-    # ensure repo exists
     aws ecr describe-repositories --repository-names '${ECR_REPO}' --region '${AWS_REGION}' >/dev/null 2>&1 || \
       aws ecr create-repository --repository-name '${ECR_REPO}' --region '${AWS_REGION}' >/dev/null
 
-    # login & build/push
-    aws ecr get-login-password --region '${AWS_REGION}' | docker login --username AWS --password-stdin \"${ECR_HOST}\"
+    aws ecr get-login-password --region '${AWS_REGION}' | docker login --username AWS --password-stdin \\"${ECR_HOST}\\"
+
     docker build -t '${ECR_REPO}:${IMAGE_TAG}' .
-    docker tag '${ECR_REPO}:${IMAGE_TAG}' \"${ECR_URL}:${IMAGE_TAG}\"
-    docker push \"${ECR_URL}:${IMAGE_TAG}\"
+    docker tag '${ECR_REPO}:${IMAGE_TAG}' \\"${ECR_URL}:${IMAGE_TAG}\\"
+    docker push \\"${ECR_URL}:${IMAGE_TAG}\\"
   "
 '''
         }
@@ -148,33 +163,36 @@ docker run --rm \
     stage('Deploy to EKS') {
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
+
+          // render manifest locally (host) first
           sh '''#!/usr/bin/env sh
-set -e
+set -eux
+IMG="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
+sed "s|IMAGE_PLACEHOLDER|$IMG|g" "${K8S_MANIFEST}" > /tmp/deploy.yaml
+ls -l /tmp/deploy.yaml
+'''
+
+          // run kubectl in a container and read manifest from stdin
+          sh '''#!/usr/bin/env sh
+set -eux
 docker run --rm \
   --entrypoint bash \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN -e AWS_REGION \
-  -v "$PWD":/workspace -w /workspace \
   amazonlinux:2023 \
   -lc "
     set -e
     dnf -y install tar gzip curl unzip shadow-utils
 
-    # kubectl
     curl -L -o /usr/local/bin/kubectl 'https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl'
     chmod +x /usr/local/bin/kubectl
-    kubectl version --client
 
-    # AWS CLI v2
     curl -sSL 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip' -o '/tmp/awscliv2.zip'
     unzip -o /tmp/awscliv2.zip -d /tmp
     /tmp/aws/install -i /opt/aws-cli -b /usr/local/bin
-    aws --version
 
-    # update kubeconfig & deploy
     aws eks update-kubeconfig --region '${AWS_REGION}' --name '${EKS_CLUSTER_NAME}'
-    sed -i \"s|IMAGE_PLACEHOLDER|${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}|g\" '${K8S_MANIFEST}'
-    kubectl apply -f '${K8S_MANIFEST}'
-  "
+    kubectl apply -f -
+  " < /tmp/deploy.yaml
 '''
         }
       }
