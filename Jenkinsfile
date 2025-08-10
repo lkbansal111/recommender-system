@@ -8,6 +8,10 @@ pipeline {
     ECR_REPO         = 'my-repo'
     EKS_CLUSTER_NAME = 'ml-app-cluster'
     IMAGE_TAG        = 'latest'
+
+    // 👇 important for WSL + Docker Desktop (since localhost:2375 didn't respond)
+    DOCKER_HOST      = 'tcp://host.docker.internal:2375'
+    DOCKER_BUILDKIT  = '1'
   }
 
   stages {
@@ -25,6 +29,18 @@ pipeline {
       }
     }
 
+    // quick check that Jenkins can talk to Docker Desktop over 2375
+    stage('Docker smoke test') {
+      steps {
+        sh '''#!/usr/bin/env sh
+set -e
+echo "DOCKER_HOST=$DOCKER_HOST"
+docker version
+docker ps
+'''
+      }
+    }
+
     stage('Provision AWS (Terraform)') {
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
@@ -35,7 +51,7 @@ docker run --rm \
   -e AWS_REGION -e AWS_DEFAULT_REGION=${AWS_REGION} \
   -v "$PWD/infra":/infra -w /infra \
   hashicorp/terraform:1.9.5 \
-  sh -lc 'terraform init -input=false && terraform apply -auto-approve -input=false'
+  sh -lc "terraform init -input=false && terraform apply -auto-approve -input=false"
 '''
         }
       }
@@ -51,13 +67,13 @@ docker run --rm \
   -e AWS_REGION -e AWS_DEFAULT_REGION=${AWS_REGION} \
   -v "$PWD":/workspace -w /workspace \
   python:3.11-slim \
-  sh -lc '
+  sh -lc "
     set -e
     apt-get update && apt-get install -y --no-install-recommends git curl && rm -rf /var/lib/apt/lists/*
     python -m pip install --no-cache-dir -U pip
-    python -m pip install --no-cache-dir "dvc[s3]"
+    python -m pip install --no-cache-dir 'dvc[s3]'
     dvc pull
-  '
+  "
 '''
         }
       }
@@ -69,27 +85,28 @@ docker run --rm \
           sh '''#!/usr/bin/env sh
 set -e
 docker run --rm \
-  -v /var/run/docker.sock:/var/run/docker.sock \
+  -e DOCKER_HOST="${DOCKER_HOST}" \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN -e AWS_REGION \
   -v "$PWD":/workspace -w /workspace \
   docker:24-cli \
-  sh -lc '
+  sh -lc "
     set -e
     apk add --no-cache python3 py3-pip
     pip install --no-cache-dir awscli
 
-    ECR_HOST="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-    ECR_URL="${ECR_HOST}/${ECR_REPO}"
+    ECR_HOST='${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com'
+    ECR_URL=\"${ECR_HOST}/${ECR_REPO}\"
 
-    aws ecr describe-repositories --repository-names "${ECR_REPO}" --region "${AWS_REGION}" >/dev/null 2>&1 || \
-      aws ecr create-repository --repository-name "${ECR_REPO}" --region "${AWS_REGION}" >/dev/null
+    # ensure repo exists
+    aws ecr describe-repositories --repository-names '${ECR_REPO}' --region '${AWS_REGION}' >/dev/null 2>&1 || \
+      aws ecr create-repository --repository-name '${ECR_REPO}' --region '${AWS_REGION}' >/dev/null
 
-    aws ecr get-login-password --region "${AWS_REGION}" | docker login --username AWS --password-stdin "${ECR_HOST}"
-
-    docker build -t "${ECR_REPO}:${IMAGE_TAG}" .
-    docker tag "${ECR_REPO}:${IMAGE_TAG}" "${ECR_URL}:${IMAGE_TAG}"
-    docker push "${ECR_URL}:${IMAGE_TAG}"
-  '
+    # login & build/push
+    aws ecr get-login-password --region '${AWS_REGION}' | docker login --username AWS --password-stdin \"${ECR_HOST}\"
+    docker build -t '${ECR_REPO}:${IMAGE_TAG}' .
+    docker tag '${ECR_REPO}:${IMAGE_TAG}' \"${ECR_URL}:${IMAGE_TAG}\"
+    docker push \"${ECR_URL}:${IMAGE_TAG}\"
+  "
 '''
         }
       }
@@ -104,24 +121,26 @@ docker run --rm \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN -e AWS_REGION \
   -v "$PWD":/workspace -w /workspace \
   amazonlinux:2023 \
-  bash -lc '
+  bash -lc "
     set -e
     dnf -y install tar gzip curl unzip shadow-utils
 
-    curl -L -o /usr/local/bin/kubectl "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    # kubectl
+    curl -L -o /usr/local/bin/kubectl 'https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl'
     chmod +x /usr/local/bin/kubectl
     kubectl version --client
 
-    curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
+    # AWS CLI v2
+    curl -sSL 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip' -o '/tmp/awscliv2.zip'
     unzip -o /tmp/awscliv2.zip -d /tmp
     /tmp/aws/install -i /opt/aws-cli -b /usr/local/bin
     aws --version
 
-    aws eks update-kubeconfig --region "${AWS_REGION}" --name "${EKS_CLUSTER_NAME}"
-
-    sed -i "s|IMAGE_PLACEHOLDER|${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}|g" deployment.yaml
+    # update kubeconfig & deploy
+    aws eks update-kubeconfig --region '${AWS_REGION}' --name '${EKS_CLUSTER_NAME}'
+    sed -i \"s|IMAGE_PLACEHOLDER|${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}|g\" deployment.yaml
     kubectl apply -f deployment.yaml
-  '
+  "
 '''
         }
       }
