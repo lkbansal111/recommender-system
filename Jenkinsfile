@@ -18,7 +18,7 @@ pipeline {
         /* ── Install Python inside jenkins-dind ─────────────────────── */
         stage('Install Python (jenkins-dind)') {
             steps {
-                sh """
+                sh '''
                     docker exec -u root -it jenkins-dind bash
                     apt update -y
                     apt install -y python3
@@ -28,20 +28,20 @@ pipeline {
                     apt install -y python3-pip
                     apt install -y python3-venv
                     exit
-                """
+                '''
             }
         }
 
-        /* ── Install kubectl and AWS CLI (NOT gcloud) ───────────────── */
+        /* ── Install kubectl and AWS CLI ─────────────────────────────── */
         stage('Install kubectl & AWS CLI (jenkins-dind)') {
             steps {
-                sh """
+                sh '''
                     docker exec -u root -it jenkins-dind bash
                     apt-get update
                     apt-get install -y curl unzip apt-transport-https ca-certificates gnupg
 
                     # Install kubectl (latest stable)
-                    curl -LO "https://storage.googleapis.com/kubernetes-release/release/\\$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl"
+                    curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl"
                     install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
                     kubectl version --client
 
@@ -51,21 +51,21 @@ pipeline {
                     /tmp/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
                     aws --version
                     exit
-                """
+                '''
             }
         }
 
         /* ── Grant Docker permission to Jenkins user ─────────────────── */
         stage('Grant Docker permission to jenkins user') {
             steps {
-                sh """
+                sh '''
                     docker exec -u root -it jenkins-dind bash
                     groupadd docker
                     usermod -aG docker jenkins
                     usermod -aG root jenkins
                     exit
                     docker restart jenkins-dind
-                """
+                '''
             }
         }
 
@@ -88,11 +88,11 @@ pipeline {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
                     dir('infra') {
-                        sh """
-                            export AWS_DEFAULT_REGION=${AWS_REGION}
+                        sh '''
+                            export AWS_DEFAULT_REGION=$AWS_REGION
                             terraform init -input=false
                             terraform apply -auto-approve -input=false
-                        """
+                        '''
                     }
                 }
             }
@@ -101,13 +101,13 @@ pipeline {
         stage('Create virtualenv') {
             steps {
                 echo 'Creating Python virtual environment …'
-                sh """
-                    python -m venv ${VENV_DIR}
-                    . ${VENV_DIR}/bin/activate
+                sh '''
+                    python -m venv $VENV_DIR
+                    . $VENV_DIR/bin/activate
                     pip install --upgrade pip
                     pip install -e .
                     pip install dvc
-                """
+                '''
             }
         }
 
@@ -115,11 +115,11 @@ pipeline {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
                     echo 'Fetching data artifacts with DVC …'
-                    sh """
-                        . ${VENV_DIR}/bin/activate
-                        export AWS_DEFAULT_REGION=${AWS_REGION}
+                    sh '''
+                        . $VENV_DIR/bin/activate
+                        export AWS_DEFAULT_REGION=$AWS_REGION
                         dvc pull
-                    """
+                    '''
                 }
             }
         }
@@ -131,13 +131,13 @@ pipeline {
                         def accountId = sh(script: "aws sts get-caller-identity --query Account --output text", returnStdout: true).trim()
                         def ecrUrl = "${accountId}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/${env.ECR_REPO}"
 
-                        sh """
-                            export PATH=\$PATH:${AWS_CLI_PATH}
-                            aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ecrUrl}
-                            docker build -t ${env.ECR_REPO}:${IMAGE_TAG} .
-                            docker tag ${env.ECR_REPO}:${IMAGE_TAG} ${ecrUrl}:${IMAGE_TAG}
-                            docker push ${ecrUrl}:${IMAGE_TAG}
-                        """
+                        sh '''
+                            export PATH=$PATH:$AWS_CLI_PATH
+                            aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin '"${ecrUrl}"'
+                            docker build -t $ECR_REPO:$IMAGE_TAG .
+                            docker tag $ECR_REPO:$IMAGE_TAG '"${ecrUrl}"':$IMAGE_TAG
+                            docker push '"${ecrUrl}"':$IMAGE_TAG
+                        '''
                     }
                 }
             }
@@ -147,15 +147,15 @@ pipeline {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
                     echo 'Updating kubeconfig & applying manifests …'
-                    sh """
-                        export PATH=\$PATH:${AWS_CLI_PATH}
-                        aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER_NAME}
+                    sh '''
+                        export PATH=$PATH:$AWS_CLI_PATH
+                        aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
 
                         # Template the image into the manifest before apply
-                        sed -i "s|IMAGE_PLACEHOLDER|${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}|g" deployment.yaml
+                        sed -i "s|IMAGE_PLACEHOLDER|$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG|g" deployment.yaml
 
                         kubectl apply -f deployment.yaml
-                    """
+                    '''
                 }
             }
         }
