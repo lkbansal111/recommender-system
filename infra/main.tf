@@ -31,7 +31,7 @@ module "vpc" {
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 20.0"              # 👈 v20+ required for access_entries
+  version = "~> 20.0"
 
   cluster_name    = "learn-eks"
   cluster_version = "1.30"
@@ -41,28 +41,36 @@ module "eks" {
 
   cluster_endpoint_private_access = false
   cluster_endpoint_public_access  = true
-  cluster_enabled_log_types       = []   # no CloudWatch logs for now
-  authentication_mode             = "API"  # new EKS auth (no aws-auth configmap)
+
+  # 🔕 Disable control-plane logs entirely (prevents log group creation)
+  cluster_enabled_log_types   = []
+  create_cloudwatch_log_group = false  # <-- belt-and-suspenders
+
+  authentication_mode = "API"  # EKS access entries, no aws-auth
+
+  # 🔐 Turn OFF cluster encryption to avoid creating a new KMS key/alias
+  cluster_encryption_config = null
+  create_kms_key            = false
 
   eks_managed_node_groups = {
     default = {
       desired_size   = 1
       min_size       = 1
       max_size       = 1
-      instance_types = ["t3.medium"]   # or keep t3.small if you must
-      disk_size      = 40              # increase root volume for images/logs
+      instance_types = ["t3.medium"]
+      disk_size      = 40
       capacity_type  = "ON_DEMAND"
       subnet_ids     = module.vpc.public_subnets
     }
   }
 
-  # Give the running IAM identity cluster-admin via Access Entry
+  # Cluster-admin for current caller
   access_entries = {
     me = {
       principal_arn = data.aws_caller_identity.current.arn
       policy_associations = {
         admin = {
-          policy_arn  = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
           access_scope = { type = "cluster" }
         }
       }
