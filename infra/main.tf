@@ -2,6 +2,7 @@ locals {
   name = var.project_name
 }
 
+# ---------- AZs ----------
 data "aws_availability_zones" "available" {}
 
 # ---------- VPC ----------
@@ -28,6 +29,7 @@ resource "aws_ecr_repository" "main" {
 
   image_scanning_configuration { scan_on_push = true }
   image_tag_mutability = "MUTABLE"
+
   encryption_configuration { encryption_type = "AES256" }
 
   tags = { Project = local.name }
@@ -52,7 +54,7 @@ resource "aws_ecr_lifecycle_policy" "main" {
 # ---------- EKS (module v19) ----------
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 19.21"
+  version = "19.21.0" # stick to v19
 
   cluster_name    = "${local.name}-cluster"
   cluster_version = "1.30"
@@ -70,30 +72,37 @@ module "eks" {
     }
   }
 
+  # NOTE: v19 me aws-auth ko yahan manage NAHIN kar rahe (no manage_aws_auth/map_*).
   tags = { Project = local.name }
 }
 
-# ---------- aws-auth (separate submodule in v19) ----------
-module "aws_auth" {
-  source  = "terraform-aws-modules/eks/aws//modules/aws-auth"
-  version = "~> 19.21"
-
-  eks_cluster_name = module.eks.cluster_name
-
-  # OPTIONAL: Jenkins user/role mapping
-  map_users = var.jenkins_user_arn != "" ? [{
+# ---------- aws-auth via Kubernetes Provider ----------
+# (v19 ke saath ye sabse stable hai; submodule/dir bug se bachata hai)
+locals {
+  aws_auth_map_users = var.jenkins_user_arn != "" ? [{
     userarn  = var.jenkins_user_arn
     username = "jenkins"
     groups   = ["system:masters"]
   }] : []
 
-  map_roles = var.jenkins_role_arn != "" ? [{
+  aws_auth_map_roles = var.jenkins_role_arn != "" ? [{
     rolearn  = var.jenkins_role_arn
     username = "jenkins-role"
     groups   = ["system:masters"]
   }] : []
+}
 
-  map_accounts = []
+resource "kubernetes_config_map" "aws_auth" {
+  metadata {
+    name      = "aws-auth"
+    namespace = "kube-system"
+  }
 
+  data = {
+    mapUsers = yamlencode(local.aws_auth_map_users)
+    mapRoles = yamlencode(local.aws_auth_map_roles)
+  }
+
+  # ensure cluster is created before applying aws-auth
   depends_on = [module.eks]
 }

@@ -14,22 +14,21 @@ variable "ecr_repo_name" {
   description = "ECR repository name"
 }
 
-# Jenkins identity you use for 'aws-token'. If it's an IAM user, set user_arn.
-# If it's a role that Jenkins assumes, set role_arn instead. Leave the other = "".
+# Jenkins identity (choose ONE: user OR role)
 variable "jenkins_user_arn" {
-  type        = string
-  default     = ""
+  type    = string
+  default = ""
 }
 
 variable "jenkins_role_arn" {
-  type        = string
-  default     = ""
+  type    = string
+  default = ""
 }
 
 # Node group sizing (adjust if needed)
 variable "node_instance_types" {
-  type        = list(string)
-  default     = ["t3.medium"]
+  type    = list(string)
+  default = ["t3.medium"]
 }
 
 variable "desired_size" {
