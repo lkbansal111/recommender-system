@@ -49,7 +49,7 @@ module "eks" {
   authentication_mode = "API"  # EKS access entries, no aws-auth
 
   # 🔐 Turn OFF cluster encryption to avoid creating a new KMS key/alias
-  cluster_encryption_config = null
+  cluster_encryption_config = []
   create_kms_key            = false
 
   eks_managed_node_groups = {
