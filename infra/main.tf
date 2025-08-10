@@ -10,6 +10,7 @@ provider "aws" {
 }
 
 data "aws_availability_zones" "available" {}
+data "aws_caller_identity" "current" {}
 
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
@@ -42,8 +43,6 @@ module "eks" {
   cluster_endpoint_public_access  = true
   cluster_enabled_log_types       = []
   create_kms_key                  = false
-  manage_aws_auth                 = true
-  enable_cluster_creator_admin_permissions = true
 
   eks_managed_node_groups = {
     default = {
@@ -55,6 +54,19 @@ module "eks" {
       subnet_ids     = module.vpc.public_subnets
     }
   }
+
+  # 👇 Terraform chalane wala IAM user/role ko cluster-admin do
+  access_entries = {
+    admin = {
+      principal_arn = data.aws_caller_identity.current.arn
+      policy_associations = {
+        admin = {
+          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
+  }
 }
 
 variable "region" {
@@ -62,10 +74,5 @@ variable "region" {
   default = "us-east-1"
 }
 
-output "cluster_name" {
-  value = module.eks.cluster_name
-}
-
-output "cluster_region" {
-  value = var.region
-}
+output "cluster_name"   { value = module.eks.cluster_name }
+output "cluster_region" { value = var.region }
