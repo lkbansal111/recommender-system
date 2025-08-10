@@ -3,7 +3,6 @@ pipeline {
   options { timestamps() }
 
   environment {
-    # ---- Config ----
     AWS_ACCOUNT_ID   = '286549082538'
     AWS_REGION       = 'eu-north-1'
     ECR_REPO         = 'my-repo'
@@ -82,7 +81,6 @@ docker run --rm \
     ECR_HOST="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
     ECR_URL="${ECR_HOST}/${ECR_REPO}"
 
-    # Create repo if missing
     aws ecr describe-repositories --repository-names "${ECR_REPO}" --region "${AWS_REGION}" >/dev/null 2>&1 || \
       aws ecr create-repository --repository-name "${ECR_REPO}" --region "${AWS_REGION}" >/dev/null
 
@@ -110,12 +108,10 @@ docker run --rm \
     set -e
     dnf -y install tar gzip curl unzip shadow-utils
 
-    # kubectl
     curl -L -o /usr/local/bin/kubectl "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     chmod +x /usr/local/bin/kubectl
     kubectl version --client
 
-    # AWS CLI v2 (install to container path)
     curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
     unzip -o /tmp/awscliv2.zip -d /tmp
     /tmp/aws/install -i /opt/aws-cli -b /usr/local/bin
