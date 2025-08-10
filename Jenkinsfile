@@ -62,32 +62,28 @@ stage('Provision AWS (Terraform)') {
     withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
       sh '''#!/usr/bin/env sh
 set -eux
-
-# 1) start a long-lived terraform container
 CID=$(docker run -d \
   --entrypoint sh \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
   -e AWS_REGION -e AWS_DEFAULT_REGION="${AWS_REGION}" \
-  hashicorp/terraform:1.9.5 \
-  -lc "sleep infinity")
+  hashicorp/terraform:1.9.5 -lc "sleep infinity")
 
-# 2) copy terraform files in
 docker cp "${TF_DIR}/." "$CID":/workspace/
 
-# 3) run terraform
 docker exec "$CID" sh -lc '
   set -e
   cd /workspace
-  terraform init -input=false
+  terraform init -input=false -upgrade
+  terraform validate
   terraform apply -auto-approve -input=false
 '
 
-# 4) cleanup
 docker rm -f "$CID"
 '''
     }
   }
 }
+
 
 
 stage('DVC pull (from S3)') {
