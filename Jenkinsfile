@@ -9,7 +9,7 @@ pipeline {
     EKS_CLUSTER_NAME = 'ml-app-cluster'
     IMAGE_TAG        = 'latest'
 
-    // 👇 important for WSL + Docker Desktop (since localhost:2375 didn't respond)
+    // WSL + Docker Desktop over TCP
     DOCKER_HOST      = 'tcp://host.docker.internal:2375'
     DOCKER_BUILDKIT  = '1'
   }
@@ -29,7 +29,6 @@ pipeline {
       }
     }
 
-    // quick check that Jenkins can talk to Docker Desktop over 2375
     stage('Docker smoke test') {
       steps {
         sh '''#!/usr/bin/env sh
@@ -47,11 +46,12 @@ docker ps
           sh '''#!/usr/bin/env sh
 set -e
 docker run --rm \
+  --entrypoint sh \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
   -e AWS_REGION -e AWS_DEFAULT_REGION=${AWS_REGION} \
   -v "$PWD/infra":/infra -w /infra \
   hashicorp/terraform:1.9.5 \
-  sh -lc "terraform init -input=false && terraform apply -auto-approve -input=false"
+  -lc "terraform init -input=false && terraform apply -auto-approve -input=false"
 '''
         }
       }
@@ -63,11 +63,12 @@ docker run --rm \
           sh '''#!/usr/bin/env sh
 set -e
 docker run --rm \
+  --entrypoint sh \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
   -e AWS_REGION -e AWS_DEFAULT_REGION=${AWS_REGION} \
   -v "$PWD":/workspace -w /workspace \
   python:3.11-slim \
-  sh -lc "
+  -lc "
     set -e
     apt-get update && apt-get install -y --no-install-recommends git curl && rm -rf /var/lib/apt/lists/*
     python -m pip install --no-cache-dir -U pip
@@ -85,11 +86,12 @@ docker run --rm \
           sh '''#!/usr/bin/env sh
 set -e
 docker run --rm \
+  --entrypoint sh \
   -e DOCKER_HOST="${DOCKER_HOST}" \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN -e AWS_REGION \
   -v "$PWD":/workspace -w /workspace \
   docker:24-cli \
-  sh -lc "
+  -lc "
     set -e
     apk add --no-cache python3 py3-pip
     pip install --no-cache-dir awscli
@@ -118,10 +120,11 @@ docker run --rm \
           sh '''#!/usr/bin/env sh
 set -e
 docker run --rm \
+  --entrypoint bash \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN -e AWS_REGION \
   -v "$PWD":/workspace -w /workspace \
   amazonlinux:2023 \
-  bash -lc "
+  -lc "
     set -e
     dnf -y install tar gzip curl unzip shadow-utils
 
