@@ -4,6 +4,11 @@ metadata:
   name: ml-app
 spec:
   replicas: 2
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
   selector:
     matchLabels:
       app: ml-app
@@ -12,12 +17,21 @@ spec:
       labels:
         app: ml-app
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app: ml-app
       containers:
       - name: ml-app-container
-        image: IMAGE_PLACEHOLDER   # <-- replaced by Jenkins sed
+        image: IMAGE_PLACEHOLDER  # replaced by Jenkins sed
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 5000
-        # (recommended) add basic health checks + small resources
         readinessProbe:
           httpGet:
             path: /
@@ -38,19 +52,25 @@ spec:
             cpu: "500m"
             memory: "512Mi"
 ---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ml-app-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ml-app
+---
 apiVersion: v1
 kind: Service
 metadata:
   name: ml-app-svc
   annotations:
-    # Public Network Load Balancer
-    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
-    service.beta.kubernetes.io/aws-load-balancer-type: external
-    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip  # (instance|ip)
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
 spec:
   type: LoadBalancer
-  # On new EKS Auto Mode clusters this can be omitted, but harmless to keep:
-  loadBalancerClass: eks.amazonaws.com/nlb
   selector:
     app: ml-app
   ports:

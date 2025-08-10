@@ -49,7 +49,8 @@ module "eks" {
       desired_size   = 1
       min_size       = 1
       max_size       = 1
-      instance_types = ["t3a.small", "t3.small"]
+      instance_types = ["t3.medium"]   # or keep t3.small if you must
+      disk_size      = 40              # increase root volume for images/logs
       capacity_type  = "ON_DEMAND"
       subnet_ids     = module.vpc.public_subnets
     }
