@@ -63,7 +63,10 @@ stage('Provision AWS (Terraform)') {
       sh '''#!/usr/bin/env sh
 set -eux
 
-# 1) Terraform container chalao (EKS_CLUSTER_NAME bhi pass karo)
+# (Optional) Purane atke terraform containers cleanup
+docker ps -q --filter "ancestor=hashicorp/terraform:1.9.5" | xargs -r docker rm -f || true
+
+# 1) Terraform container
 CID=$(docker run -d \
   --entrypoint sh \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
@@ -74,33 +77,38 @@ CID=$(docker run -d \
 # 2) TF files copy
 docker cp "${TF_DIR}/." "$CID":/workspace/
 
-# 3) Container me AWS CLI install + pre-import + apply
+# 3) Container me awscli install (NO pip) + pre-import + apply
 docker exec "$CID" sh -lc '
-  set -e
+  set -eux
 
-  # awscli install (alpine/debian dono cover)
-  (apk add --no-cache python3 py3-pip || (apt-get update && apt-get install -y python3-pip)) || true
-  (pip3 install --no-cache-dir awscli || pip install --no-cache-dir awscli)
+  # awscli via package manager (Alpine/Debian both)
+  if command -v apk >/dev/null 2>&1; then
+    apk add --no-cache aws-cli curl jq
+  elif command -v apt-get >/dev/null 2>&1; then
+    apt-get update && apt-get install -y awscli curl jq && rm -rf /var/lib/apt/lists/*
+  else
+    echo "No supported package manager to install awscli" >&2
+    exit 1
+  fi
 
   cd /workspace
   terraform init -input=false -upgrade
   terraform validate
 
-  # --- preflight: CloudWatch log group exists? to import it ---
+  # --- preflight: agar CW log group pehle se hai to import to state ---
   LG="/aws/eks/${EKS_CLUSTER_NAME}/cluster"
-  if aws logs describe-log-groups --log-group-name-prefix "$LG" --region "${AWS_REGION}" | grep -q "$LG"; then
+  if aws logs describe-log-groups --region "${AWS_REGION}" \
+       --log-group-name-prefix "$LG" \
+       | jq -e ".logGroups[] | select(.logGroupName==\\"$LG\\")" > /dev/null; then
     echo "Log group $LG exists -> importing into Terraform state"
-    # already-in-state pe fail na ho, isliye || true
     terraform import -input=false "module.eks.aws_cloudwatch_log_group.this[0]" "$LG" || true
   fi
-
-  # Optional: agar module var support karta ho to create disable bhi kar sakte:
-  # [ -n "$(aws logs describe-log-groups --log-group-name-prefix "$LG" --region "${AWS_REGION}" | grep "$LG" || true)" ] && export TF_VAR_create_cloudwatch_log_group=false
 
   terraform apply -auto-approve -input=false
 '
 
-docker rm -f "$CID"
+# 4) cleanup
+docker rm -f "$CID" || true
 '''
     }
   }
