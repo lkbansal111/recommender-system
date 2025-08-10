@@ -9,9 +9,13 @@ pipeline {
     EKS_CLUSTER_NAME = 'ml-app-cluster'
     IMAGE_TAG        = 'latest'
 
-    // WSL + Docker Desktop over TCP
+    // WSL + Docker Desktop TCP
     DOCKER_HOST      = 'tcp://host.docker.internal:2375'
     DOCKER_BUILDKIT  = '1'
+
+    // ---- paths in your repo ----
+    TF_DIR           = 'infra'              // <--- change if your terraform lives elsewhere
+    K8S_MANIFEST     = 'deployment.yaml'    // <--- change if manifest path differs
   }
 
   stages {
@@ -40,6 +44,33 @@ docker ps
       }
     }
 
+    stage('Repo layout check') {
+      steps {
+        sh '''#!/usr/bin/env sh
+set -e
+echo "Workspace: $PWD"
+echo "Listing top-level:"
+ls -la
+
+echo "Checking TF_DIR: $TF_DIR"
+if [ ! -d "$TF_DIR" ]; then
+  echo "ERROR: TF_DIR '$TF_DIR' does not exist in repo root."
+  echo "Hint: set TF_DIR correctly in Jenkinsfile environment { TF_DIR = 'path/to/terraform' }"
+  exit 1
+fi
+
+echo "Listing $TF_DIR:"
+ls -la "$TF_DIR"
+
+if ! find "$TF_DIR" -maxdepth 1 -type f -name '*.tf' | grep -q .; then
+  echo "ERROR: No .tf files found in '$TF_DIR'."
+  echo "Hint: ensure terraform files are present on branch 'dev' or update TF_DIR."
+  exit 1
+fi
+'''
+      }
+    }
+
     stage('Provision AWS (Terraform)') {
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
@@ -48,8 +79,8 @@ set -e
 docker run --rm \
   --entrypoint sh \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
-  -e AWS_REGION -e AWS_DEFAULT_REGION=${AWS_REGION} \
-  -v "$PWD/infra":/infra -w /infra \
+  -e AWS_REGION -e AWS_DEFAULT_REGION="${AWS_REGION}" \
+  -v "$PWD":/workspace -w "/workspace/${TF_DIR}" \
   hashicorp/terraform:1.9.5 \
   -lc "terraform init -input=false && terraform apply -auto-approve -input=false"
 '''
@@ -65,7 +96,7 @@ set -e
 docker run --rm \
   --entrypoint sh \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
-  -e AWS_REGION -e AWS_DEFAULT_REGION=${AWS_REGION} \
+  -e AWS_REGION -e AWS_DEFAULT_REGION="${AWS_REGION}" \
   -v "$PWD":/workspace -w /workspace \
   python:3.11-slim \
   -lc "
@@ -141,8 +172,8 @@ docker run --rm \
 
     # update kubeconfig & deploy
     aws eks update-kubeconfig --region '${AWS_REGION}' --name '${EKS_CLUSTER_NAME}'
-    sed -i \"s|IMAGE_PLACEHOLDER|${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}|g\" deployment.yaml
-    kubectl apply -f deployment.yaml
+    sed -i \"s|IMAGE_PLACEHOLDER|${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}|g\" '${K8S_MANIFEST}'
+    kubectl apply -f '${K8S_MANIFEST}'
   "
 '''
         }
