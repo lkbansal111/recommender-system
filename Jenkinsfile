@@ -15,11 +15,65 @@ pipeline {
 
     stages {
 
+        /* ── Install Python inside jenkins-dind ─────────────────────── */
+        stage('Install Python (jenkins-dind)') {
+            steps {
+                sh """
+                    docker exec -u root -it jenkins-dind bash
+                    apt update -y
+                    apt install -y python3
+                    python3 --version
+                    ln -s /usr/bin/python3 /usr/bin/python
+                    python --version
+                    apt install -y python3-pip
+                    apt install -y python3-venv
+                    exit
+                """
+            }
+        }
+
+        /* ── Install kubectl and AWS CLI (NOT gcloud) ───────────────── */
+        stage('Install kubectl & AWS CLI (jenkins-dind)') {
+            steps {
+                sh """
+                    docker exec -u root -it jenkins-dind bash
+                    apt-get update
+                    apt-get install -y curl unzip apt-transport-https ca-certificates gnupg
+
+                    # Install kubectl (latest stable)
+                    curl -LO "https://storage.googleapis.com/kubernetes-release/release/\\$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl"
+                    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+                    kubectl version --client
+
+                    # Install AWS CLI v2
+                    curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
+                    unzip -o /tmp/awscliv2.zip -d /tmp
+                    /tmp/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
+                    aws --version
+                    exit
+                """
+            }
+        }
+
+        /* ── Grant Docker permission to Jenkins user ─────────────────── */
+        stage('Grant Docker permission to jenkins user') {
+            steps {
+                sh """
+                    docker exec -u root -it jenkins-dind bash
+                    groupadd docker
+                    usermod -aG docker jenkins
+                    usermod -aG root jenkins
+                    exit
+                    docker restart jenkins-dind
+                """
+            }
+        }
+
         stage('Clone from GitHub') {
             steps {
                 echo 'Cloning repository …'
                 checkout scmGit(
-                    branches: [[name: '*/master']],
+                    branches: [[name: '*/dev']],
                     extensions: [],
                     userRemoteConfigs: [[
                         credentialsId: 'github-token',
