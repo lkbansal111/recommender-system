@@ -65,16 +65,14 @@ find "$TF_DIR" -maxdepth 1 -type f -name '*.tf' | grep -q . || { echo "ERROR: no
       }
     }
 
-    stage('Provision AWS (Terraform)') {
-      steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
-          sh '''#!/usr/bin/env sh
+stage('Provision AWS (Terraform)') {
+  steps {
+    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
+      sh '''#!/usr/bin/env sh
 set -eux
 
-# Clean any old TF helper containers
 docker ps -q --filter "ancestor=hashicorp/terraform:1.9.5" | xargs -r docker rm -f || true
 
-# Start a throwaway container for TF work, PASS all needed env vars
 CID=$(docker run -d \
   --entrypoint sh \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
@@ -92,20 +90,35 @@ docker cp "${TF_DIR}/." "$CID":/workspace/
 docker exec "$CID" sh -lc '
   set -eux
 
-  # Alpine base: use pip awscli (v1) — v2 needs glibc
+  # Tools + Python venv (avoid PEP 668)
   if command -v apk >/dev/null 2>&1; then
     apk add --no-cache curl jq python3 py3-pip unzip
-    python3 -m pip install --no-cache-dir -U pip awscli
-  elif command -v apt-get >/dev/null 2>&1; then
+  else
     apt-get update && apt-get install -y curl jq python3 python3-pip unzip && rm -rf /var/lib/apt/lists/*
-    python3 -m pip install --no-cache-dir -U pip awscli
   fi
+  python3 -m venv /opt/venv
+  . /opt/venv/bin/activate
+  pip install --no-cache-dir -U pip awscli
+  export PATH="/opt/venv/bin:$PATH"
 
   cd /workspace
 
   BACKEND_BUCKET="${TF_STATE_BUCKET}"
   LOCK_TABLE="${TF_LOCK_TABLE}"
   STATE_KEY="eks/${DEPLOY_ENV}/terraform.tfstate"
+
+  # Create SSE config file to avoid quote-hell
+  cat >/tmp/sse.json <<'"JSON"'
+{
+  "Rules": [
+    {
+      "ApplyServerSideEncryptionByDefault": {
+        "SSEAlgorithm": "AES256"
+      }
+    }
+  ]
+}
+"JSON"
 
   # Ensure backend bucket & DynamoDB lock table exist (idempotent)
   if ! aws s3api head-bucket --bucket "$BACKEND_BUCKET" 2>/dev/null; then
@@ -115,7 +128,8 @@ docker exec "$CID" sh -lc '
       aws s3api create-bucket --bucket "$BACKEND_BUCKET" --create-bucket-configuration LocationConstraint="${AWS_REGION}"
     fi
     aws s3api put-bucket-versioning --bucket "$BACKEND_BUCKET" --versioning-configuration Status=Enabled
-    aws s3api put-bucket-encryption --bucket "$BACKEND_BUCKET" --server-side-encryption-configuration "{\"Rules\":[{\"ApplyServerSideEncryptionByDefault\":{\"SSEAlgorithm\":\"AES256\"}}]}"
+    aws s3api put-bucket-encryption --bucket "$BACKEND_BUCKET" \
+      --server-side-encryption-configuration file:///tmp/sse.json
   fi
 
   if ! aws dynamodb describe-table --table-name "$LOCK_TABLE" >/dev/null 2>&1; then
@@ -127,7 +141,7 @@ docker exec "$CID" sh -lc '
     aws dynamodb wait table-exists --table-name "$LOCK_TABLE"
   fi
 
-  # Init with explicit backend config so each DEPLOY_ENV has its own state object
+  # Init with explicit backend config so each DEPLOY_ENV has its own state
   terraform init -input=false -upgrade \
     -backend-config="bucket=${BACKEND_BUCKET}" \
     -backend-config="key=${STATE_KEY}" \
@@ -135,12 +149,12 @@ docker exec "$CID" sh -lc '
     -backend-config="dynamodb_table=${LOCK_TABLE}" \
     -backend-config="encrypt=true"
 
-  # Select/create Terraform workspace (drives cluster name suffix)
+  # Workspace per env (also used by TF to suffix the cluster name)
   terraform workspace select "${DEPLOY_ENV}" || terraform workspace new "${DEPLOY_ENV}"
 
-  # Tighten public API access to this runner"s egress IP (override default 0.0.0.0/0)
-  MYIP="$(curl -s https://checkip.amazonaws.com | tr -d \" \\n\\r\")"
-  export TF_VAR_cluster_endpoint_public_access_cidrs='"'"'["'"'"'"${MYIP}"'"'"/32"]'"'"'
+  # Restrict public API to runner IP
+  MYIP="$(curl -s https://checkip.amazonaws.com | tr -d \"\\n\\r\\t \")"
+  export TF_VAR_cluster_endpoint_public_access_cidrs="[\\\"${MYIP}/32\\\"]"
 
   terraform validate
   terraform apply -auto-approve -input=false
@@ -148,9 +162,10 @@ docker exec "$CID" sh -lc '
 
 docker rm -f "$CID" || true
 '''
-        }
-      }
     }
+  }
+}
+
 
     stage('DVC pull (from S3)') {
       steps {
