@@ -3,27 +3,26 @@ pipeline {
   options { timestamps() }
 
   environment {
-    // ---- AWS / ECR ----
-    AWS_ACCOUNT_ID = '286549082538'
-    AWS_REGION     = 'us-east-1'
-    ECR_REPO       = 'my-repo'
-    IMAGE_TAG      = 'latest'
+    // ---- AWS / ECR / EKS ----
+    AWS_ACCOUNT_ID   = '286549082538'
+    AWS_REGION       = 'us-east-1'
+    ECR_REPO         = 'my-repo'
+    BASE_CLUSTER_NAME = 'learn-eks'   // must match Terraform var cluster_name
+    EKS_CLUSTER_NAME  = 'learn-eks'   // used by kubectl update-kubeconfig
 
-    // ---- EKS naming driven by Terraform workspace ----
-    DEPLOY_ENV        = 'dev'          // set per branch/env
-    BASE_CLUSTER_NAME = 'learn-eks'    // base; TF makes it ${BASE_CLUSTER_NAME}-${DEPLOY_ENV}
-
-    // ---- Docker host (Docker Desktop or remote daemon) ----
+    // ---- Docker ----
     DOCKER_HOST     = 'tcp://host.docker.internal:2375'
     DOCKER_BUILDKIT = '1'
 
-    // ---- IaC backend ----
+    // ---- Terraform paths / backend ----
     TF_DIR          = 'infra'
-    TF_STATE_BUCKET = 'tf-state-286549082538'  // will be created if missing
-    TF_LOCK_TABLE   = 'tf-locks'               // will be created if missing
+    TF_STATE_BUCKET = 'tf-state-286549082538'  // change if you prefer another bucket name
+    TF_LOCK_TABLE   = 'tf-locks'
+    DEPLOY_ENV      = 'dev'                    // workspace name & state prefix
 
-    // ---- App deploy ----
-    K8S_MANIFEST    = 'deployment.yaml'
+    // ---- App / K8s ----
+    IMAGE_TAG     = 'latest'
+    K8S_MANIFEST  = 'deployment.yaml'
   }
 
   stages {
@@ -44,7 +43,7 @@ pipeline {
     stage('Docker smoke test') {
       steps {
         sh '''#!/usr/bin/env sh
-set -e
+set -ex
 echo "DOCKER_HOST=$DOCKER_HOST"
 docker version
 docker ps
@@ -55,7 +54,7 @@ docker ps
     stage('Repo layout check') {
       steps {
         sh '''#!/usr/bin/env sh
-set -e
+set -ex
 echo "Workspace: $PWD"
 ls -la
 echo "Checking TF_DIR: $TF_DIR"
@@ -65,12 +64,13 @@ find "$TF_DIR" -maxdepth 1 -type f -name '*.tf' | grep -q . || { echo "ERROR: no
       }
     }
 
-stage('Provision AWS (Terraform)') {
-  steps {
-    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
-      sh '''#!/usr/bin/env sh
-set -eux
+    stage('Provision AWS (Terraform)') {
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
+          sh '''#!/usr/bin/env sh
+set -ex
 
+# clean any old TF container
 docker ps -q --filter "ancestor=hashicorp/terraform:1.9.5" | xargs -r docker rm -f || true
 
 CID=$(docker run -d \
@@ -82,20 +82,20 @@ CID=$(docker run -d \
   -e TF_STATE_BUCKET="${TF_STATE_BUCKET}" \
   -e TF_LOCK_TABLE="${TF_LOCK_TABLE}" \
   -e DEPLOY_ENV="${DEPLOY_ENV}" \
-  -e BASE_CLUSTER_NAME="${BASE_CLUSTER_NAME}" \
   hashicorp/terraform:1.9.5 -lc "sleep infinity")
 
 docker cp "${TF_DIR}/." "$CID":/workspace/
 
 docker exec "$CID" sh -lc '
-  set -eux
+  set -ex
 
-  # Tools + Python venv (avoid PEP 668)
+  # Tools + Python venv for AWS CLI
   if command -v apk >/dev/null 2>&1; then
     apk add --no-cache curl jq python3 py3-pip unzip
   else
     apt-get update && apt-get install -y curl jq python3 python3-pip unzip && rm -rf /var/lib/apt/lists/*
   fi
+
   python3 -m venv /opt/venv
   . /opt/venv/bin/activate
   pip install --no-cache-dir -U pip awscli
@@ -107,8 +107,8 @@ docker exec "$CID" sh -lc '
   LOCK_TABLE="${TF_LOCK_TABLE}"
   STATE_KEY="eks/${DEPLOY_ENV}/terraform.tfstate"
 
-  # Create SSE config file to avoid quote-hell
-  cat >/tmp/sse.json <<'"JSON"'
+  # proper HEREDOC (no stray quotes)
+  cat >/tmp/sse.json <<'JSON'
 {
   "Rules": [
     {
@@ -118,7 +118,7 @@ docker exec "$CID" sh -lc '
     }
   ]
 }
-"JSON"
+JSON
 
   # Ensure backend bucket & DynamoDB lock table exist (idempotent)
   if ! aws s3api head-bucket --bucket "$BACKEND_BUCKET" 2>/dev/null; then
@@ -141,7 +141,7 @@ docker exec "$CID" sh -lc '
     aws dynamodb wait table-exists --table-name "$LOCK_TABLE"
   fi
 
-  # Init with explicit backend config so each DEPLOY_ENV has its own state
+  # Init with explicit backend config
   terraform init -input=false -upgrade \
     -backend-config="bucket=${BACKEND_BUCKET}" \
     -backend-config="key=${STATE_KEY}" \
@@ -149,12 +149,17 @@ docker exec "$CID" sh -lc '
     -backend-config="dynamodb_table=${LOCK_TABLE}" \
     -backend-config="encrypt=true"
 
-  # Workspace per env (also used by TF to suffix the cluster name)
+  # Workspace per env
   terraform workspace select "${DEPLOY_ENV}" || terraform workspace new "${DEPLOY_ENV}"
 
-  # Restrict public API to runner IP
-  MYIP="$(curl -s https://checkip.amazonaws.com | tr -d \"\\n\\r\\t \")"
-  export TF_VAR_cluster_endpoint_public_access_cidrs="[\\\"${MYIP}/32\\\"]"
+  # Public API CIDRs — try to restrict to runner IP, else fallback wide-open
+  MYIP="$( (curl -s https://checkip.amazonaws.com || true) | tr -d "\\n\\r\\t " )"
+  if [ -n "$MYIP" ]; then
+    export TF_VAR_cluster_endpoint_public_access_cidrs="[\\\"${MYIP}/32\\\"]"
+  else
+    echo "WARN: could not detect egress IP; allowing 0.0.0.0/0"
+    export TF_VAR_cluster_endpoint_public_access_cidrs="[\\\"0.0.0.0/0\\\"]"
+  fi
 
   terraform validate
   terraform apply -auto-approve -input=false
@@ -162,28 +167,26 @@ docker exec "$CID" sh -lc '
 
 docker rm -f "$CID" || true
 '''
+        }
+      }
     }
-  }
-}
-
 
     stage('DVC pull (from S3)') {
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
           sh '''#!/usr/bin/env sh
-set -eux
+set -ex
 
 CID=$(docker run -d \
   --entrypoint sh \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
   -e AWS_REGION -e AWS_DEFAULT_REGION="${AWS_REGION}" \
-  python:3.11-slim \
-  -lc "sleep infinity")
+  python:3.11-slim -lc "sleep infinity")
 
 docker cp . "$CID":/workspace
 
 docker exec "$CID" sh -lc '
-  set -e
+  set -ex
   apt-get update && apt-get install -y --no-install-recommends git curl && rm -rf /var/lib/apt/lists/*
   python -m pip install --no-cache-dir -U pip
   python -m pip install --no-cache-dir "dvc[s3]"
@@ -202,25 +205,26 @@ docker rm -f "$CID"
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
           sh '''#!/usr/bin/env sh
-set -eux
+set -ex
 docker run --rm \
   --entrypoint sh \
   -e DOCKER_HOST="${DOCKER_HOST}" \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN -e AWS_REGION \
   -w /workspace \
   -v "$PWD":/workspace:ro \
-  docker:24-cli \
-  -lc "
-    set -e
+  docker:24-cli -lc "
+    set -ex
     apk add --no-cache python3 py3-pip
-    python3 -m pip install --no-cache-dir -U pip awscli
+    pip install --no-cache-dir awscli
 
     ECR_HOST='${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com'
     ECR_URL=\"${ECR_HOST}/${ECR_REPO}\"
 
+    # Ensure repo exists
     aws ecr describe-repositories --repository-names '${ECR_REPO}' --region '${AWS_REGION}' >/dev/null 2>&1 || \
       aws ecr create-repository --repository-name '${ECR_REPO}' --region '${AWS_REGION}' >/dev/null
 
+    # v1 CLI: get-login (works fine)
     eval \$(aws ecr get-login --region '${AWS_REGION}' --no-include-email)
 
     docker build -t '${ECR_REPO}:${IMAGE_TAG}' .
@@ -236,33 +240,32 @@ docker run --rm \
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
           sh '''#!/usr/bin/env sh
-set -eux
+set -ex
 IMG="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
 sed "s|IMAGE_PLACEHOLDER|$IMG|g" "${K8S_MANIFEST}" > /tmp/deploy.yaml
 ls -l /tmp/deploy.yaml
 '''
 
           sh '''#!/usr/bin/env sh
-set -eux
+set -ex
 docker run --rm \
   --entrypoint bash \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN -e AWS_REGION \
-  -e EKS_CLUSTER_NAME="${BASE_CLUSTER_NAME}-${DEPLOY_ENV}" \
-  amazonlinux:2023 \
-  -lc "
-    set -e
+  amazonlinux:2023 -lc "
+    set -ex
     dnf -y install tar gzip curl unzip shadow-utils
 
-    curl -L -o /usr/local/bin/kubectl \"https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl\"
+    # kubectl
+    curl -L -o /usr/local/bin/kubectl \\
+      \"https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl\"
     chmod +x /usr/local/bin/kubectl
 
+    # AWS CLI v2
     curl -sSL 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip' -o '/tmp/awscliv2.zip'
-    unzip -q /tmp/awscliv2.zip -d /tmp
+    unzip -q -o /tmp/awscliv2.zip -d /tmp
     /tmp/aws/install -i /opt/aws-cli -b /usr/local/bin
 
-    aws eks update-kubeconfig --region '${AWS_REGION}' --name \"${EKS_CLUSTER_NAME}\" --alias \"${EKS_CLUSTER_NAME}\"
-    kubectl cluster-info
-
+    aws eks update-kubeconfig --region '${AWS_REGION}' --name '${EKS_CLUSTER_NAME}'
     kubectl wait --for=condition=Ready node --all --timeout=600s || true
     kubectl apply -f -
     kubectl get pods -A
@@ -272,5 +275,11 @@ docker run --rm \
       }
     }
 
+  }
+
+  post {
+    always {
+      echo 'Pipeline finished (success or failure).'
+    }
   }
 }
