@@ -1,112 +1,61 @@
-locals {
-  name = var.project_name
+terraform {
+  required_version = ">= 1.5"
+  required_providers {
+    aws = { source = "hashicorp/aws", version = "~> 5.100" }
+  }
 }
 
-# ---------- AZs ----------
+provider "aws" { region = var.region }
+
 data "aws_availability_zones" "available" {}
 
-# ---------- VPC ----------
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "~> 5.8"
+  version = "5.21.0"
 
-  name = "${local.name}-vpc"
+  name = "learn-eks-vpc"
   cidr = "10.0.0.0/16"
 
-  azs             = slice(data.aws_availability_zones.available.names, 0, 3)
-  private_subnets = ["10.0.1.0/24","10.0.2.0/24","10.0.3.0/24"]
-  public_subnets  = ["10.0.101.0/24","10.0.102.0/24","10.0.103.0/24"]
+  azs            = slice(data.aws_availability_zones.available.names, 0, 2)
+  public_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
 
-  enable_nat_gateway = true
-  single_nat_gateway = true
-
-  tags = { Project = local.name }
+  enable_nat_gateway       = false
+  single_nat_gateway       = false
+  map_public_ip_on_launch  = true
+  enable_dns_hostnames     = true
+  enable_dns_support       = true
 }
 
-# ---------- ECR ----------
-resource "aws_ecr_repository" "main" {
-  name = var.ecr_repo_name
-
-  image_scanning_configuration { scan_on_push = true }
-  image_tag_mutability = "MUTABLE"
-
-  encryption_configuration { encryption_type = "AES256" }
-
-  tags = { Project = local.name }
-}
-
-resource "aws_ecr_lifecycle_policy" "main" {
-  repository = aws_ecr_repository.main.name
-  policy     = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Keep last 20 images"
-      selection    = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 20
-      }
-      action = { type = "expire" }
-    }]
-  })
-}
-
-# ---------- EKS (module v19) ----------
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "19.21.0" # stick to v19
+  version = "19.21.0"
 
-  cluster_name    = "${local.name}-cluster"
+  cluster_name    = "learn-eks"
   cluster_version = "1.30"
 
-  # ↓ CloudWatch control-plane logs band
-  cluster_enabled_log_types   = []
-  create_cloudwatch_log_group = false
+  vpc_id     = module.vpc.vpc_id
+  subnet_ids = module.vpc.public_subnets
 
-  vpc_id                         = module.vpc.vpc_id
-  subnet_ids                     = module.vpc.private_subnets
-  cluster_endpoint_public_access = true
+  cluster_endpoint_private_access = false
+  cluster_endpoint_public_access  = true
+  cluster_enabled_log_types       = []
+  create_kms_key                  = false
+  manage_aws_auth                 = true
+  enable_cluster_creator_admin_permissions = true
 
   eks_managed_node_groups = {
     default = {
-      instance_types = var.node_instance_types
-      min_size       = var.min_size
-      max_size       = var.max_size
-      desired_size   = var.desired_size
+      desired_size  = 1
+      min_size      = 1
+      max_size      = 1
+      instance_types = ["t3a.small", "t3.small"]
+      capacity_type  = "ON_DEMAND"
+      subnet_ids     = module.vpc.public_subnets
     }
   }
-
-  # NOTE: v19 me aws-auth ko yahan manage NAHIN kar rahe (no manage_aws_auth/map_*).
-  tags = { Project = local.name }
 }
 
-# ---------- aws-auth via Kubernetes Provider ----------
-# (v19 ke saath ye sabse stable hai; submodule/dir bug se bachata hai)
-locals {
-  aws_auth_map_users = var.jenkins_user_arn != "" ? [{
-    userarn  = var.jenkins_user_arn
-    username = "jenkins"
-    groups   = ["system:masters"]
-  }] : []
+variable "region" { type = string, default = "us-east-1" }
 
-  aws_auth_map_roles = var.jenkins_role_arn != "" ? [{
-    rolearn  = var.jenkins_role_arn
-    username = "jenkins-role"
-    groups   = ["system:masters"]
-  }] : []
-}
-
-resource "kubernetes_config_map" "aws_auth" {
-  metadata {
-    name      = "aws-auth"
-    namespace = "kube-system"
-  }
-
-  data = {
-    mapUsers = yamlencode(local.aws_auth_map_users)
-    mapRoles = yamlencode(local.aws_auth_map_roles)
-  }
-
-  # ensure cluster is created before applying aws-auth
-  depends_on = [module.eks]
-}
+output "cluster_name"   { value = module.eks.cluster_name }
+output "cluster_region" { value = var.region }

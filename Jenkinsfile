@@ -4,7 +4,7 @@ pipeline {
 
   environment {
     AWS_ACCOUNT_ID   = '286549082538'
-    AWS_REGION       = 'eu-north-1'
+    AWS_REGION       = 'eu-east-1'
     ECR_REPO         = 'my-repo'
     EKS_CLUSTER_NAME = 'ml-app-cluster'
     IMAGE_TAG        = 'latest'
@@ -20,42 +20,7 @@ pipeline {
 
   stages {
 
-    stage('Checkout') {
-      steps {
-        checkout scmGit(
-          branches: [[name: '*/dev']],
-          extensions: [],
-          userRemoteConfigs: [[
-            credentialsId: 'github-token',
-            url: 'https://github.com/lkbansal111/recommender-system.git'
-          ]]
-        )
-      }
-    }
 
-    stage('Docker smoke test') {
-      steps {
-        sh '''#!/usr/bin/env sh
-set -e
-echo "DOCKER_HOST=$DOCKER_HOST"
-docker version
-docker ps
-'''
-      }
-    }
-
-    stage('Repo layout check') {
-      steps {
-        sh '''#!/usr/bin/env sh
-set -e
-echo "Workspace: $PWD"
-ls -la
-echo "Checking TF_DIR: $TF_DIR"
-test -d "$TF_DIR" || { echo "ERROR: TF_DIR '$TF_DIR' not found"; exit 1; }
-find "$TF_DIR" -maxdepth 1 -type f -name '*.tf' | grep -q . || { echo "ERROR: no .tf in $TF_DIR"; exit 1; }
-'''
-      }
-    }
 
 stage('Provision AWS (Terraform)') {
   steps {
@@ -117,42 +82,7 @@ docker rm -f "$CID" || true
 
 
 
-stage('DVC pull (from S3)') {
-  steps {
-    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-token']]) {
-      sh '''#!/usr/bin/env sh
-set -eux
 
-# 1) start a python container
-CID=$(docker run -d \
-  --entrypoint sh \
-  -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
-  -e AWS_REGION -e AWS_DEFAULT_REGION="${AWS_REGION}" \
-  python:3.11-slim \
-  -lc "sleep infinity")
-
-# 2) copy full repo (DVC needs .dvc etc.)
-docker cp . "$CID":/workspace
-
-# 3) install + pull
-docker exec "$CID" sh -lc '
-  set -e
-  apt-get update && apt-get install -y --no-install-recommends git curl && rm -rf /var/lib/apt/lists/*
-  python -m pip install --no-cache-dir -U pip
-  python -m pip install --no-cache-dir "dvc[s3]"
-  cd /workspace
-  dvc pull
-'
-
-# 4) copy pulled artifacts back
-docker cp "$CID":/workspace/. "$PWD"
-
-# 5) cleanup
-docker rm -f "$CID"
-'''
-    }
-  }
-}
 
 
     stage('Build & Push Docker Image to ECR') {
