@@ -2,7 +2,6 @@ locals {
   name = var.project_name
 }
 
-# ---------- AZs ----------
 data "aws_availability_zones" "available" {}
 
 # ---------- VPC ----------
@@ -29,7 +28,6 @@ resource "aws_ecr_repository" "main" {
 
   image_scanning_configuration { scan_on_push = true }
   image_tag_mutability = "MUTABLE"
-
   encryption_configuration { encryption_type = "AES256" }
 
   tags = { Project = local.name }
@@ -51,13 +49,13 @@ resource "aws_ecr_lifecycle_policy" "main" {
   })
 }
 
-# ---------- EKS (pin v19) ----------
+# ---------- EKS (module v19) ----------
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 19.21"
 
   cluster_name    = "${local.name}-cluster"
-  cluster_version = "1.29" # 1.30 par region support issue aaye to 1.29 safe hai
+  cluster_version = "1.30"
 
   vpc_id                         = module.vpc.vpc_id
   subnet_ids                     = module.vpc.private_subnets
@@ -72,22 +70,30 @@ module "eks" {
     }
   }
 
-  # v19 me aws-auth yahin manage hota hai:
-  manage_aws_auth = true
+  tags = { Project = local.name }
+}
 
-  # NOTE: yahan map_users/map_roles NAHI, balki aws_auth_users/aws_auth_roles
-  aws_auth_users = var.jenkins_user_arn != "" ? [{
+# ---------- aws-auth (separate submodule in v19) ----------
+module "aws_auth" {
+  source  = "terraform-aws-modules/eks/aws//modules/aws-auth"
+  version = "~> 19.21"
+
+  eks_cluster_name = module.eks.cluster_name
+
+  # OPTIONAL: Jenkins user/role mapping
+  map_users = var.jenkins_user_arn != "" ? [{
     userarn  = var.jenkins_user_arn
     username = "jenkins"
     groups   = ["system:masters"]
   }] : []
 
-  aws_auth_roles = var.jenkins_role_arn != "" ? [{
+  map_roles = var.jenkins_role_arn != "" ? [{
     rolearn  = var.jenkins_role_arn
     username = "jenkins-role"
     groups   = ["system:masters"]
   }] : []
 
-  tags = { Project = local.name }
-}
+  map_accounts = []
 
+  depends_on = [module.eks]
+}
