@@ -54,10 +54,10 @@ resource "aws_ecr_lifecycle_policy" "main" {
 # ---------- EKS (pin v19) ----------
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 19.21"  # 👈 v19 line
+  version = "~> 19.21"
 
   cluster_name    = "${local.name}-cluster"
-  cluster_version = "1.30"  # if it errors, use "1.29"
+  cluster_version = "1.29" # 1.30 par region support issue aaye to 1.29 safe hai
 
   vpc_id                         = module.vpc.vpc_id
   subnet_ids                     = module.vpc.private_subnets
@@ -72,18 +72,17 @@ module "eks" {
     }
   }
 
-  # v19 me aws-auth yahin manage hota hai
+  # v19 me aws-auth yahin manage hota hai:
   manage_aws_auth = true
 
-  # IAM User ko cluster admin do (optional)
-  map_users = var.jenkins_user_arn != "" ? [{
+  # NOTE: yahan map_users/map_roles NAHI, balki aws_auth_users/aws_auth_roles
+  aws_auth_users = var.jenkins_user_arn != "" ? [{
     userarn  = var.jenkins_user_arn
     username = "jenkins"
     groups   = ["system:masters"]
   }] : []
 
-  # IAM Role ko cluster admin do (optional)
-  map_roles = var.jenkins_role_arn != "" ? [{
+  aws_auth_roles = var.jenkins_role_arn != "" ? [{
     rolearn  = var.jenkins_role_arn
     username = "jenkins-role"
     groups   = ["system:masters"]
@@ -91,3 +90,4 @@ module "eks" {
 
   tags = { Project = local.name }
 }
+
